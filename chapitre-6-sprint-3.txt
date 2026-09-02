@@ -1,0 +1,184 @@
+Chapitre 6 — Le troisième sprint : Incidents, IA et administration
+(même plan que les chapitres 4 et 5 — coller dans RAPPORT-FINALE2.docx)
+
+
+Introduction
+
+Le parc est visible. Ce chapitre est consacré au troisième sprint de réalisation de WatchDesk. L’objectif est de traiter ce qui se passe après la collecte : ouvrir et suivre les incidents, alerter par e-mail si la gravité est critique, interroger l’assistant IA, consulter les vulnérabilités, puis, côté super administrateur, régler les seuils, les règles d’alertes, les comptes et le journal d’audit. Les alertes partent par e-mail (SMTP), pas par une messagerie d’équipe.
+
+
+Backlog du sprint 3
+
+Le tableau 6.1 résume le backlog de ce sprint. Les histoires suivent le format « En tant que… je peux… afin de… ». Les critères d’acceptation permettent de dire si la story est réellement terminée.
+
+TABLEAU 6.1 — Backlog du sprint 3
+
+ID	Histoire utilisateur	Critères d’acceptation
+US-11	En tant qu’administrateur, je consulte les incidents, je les filtre et je change leur statut, sans doublons inutiles.	Liste filtrable. Statut OUVERT → EN COURS → RÉSOLU. Un second rapport du même type sur la même machine ne crée pas un nouvel incident ouvert.
+US-12	En tant qu’administrateur, je reçois une notification e-mail pour un incident critique.	Gravité critique → e-mail SMTP. Mode maintenance → pas de création automatique, donc pas de mail auto.
+US-13	En tant qu’administrateur, j’interroge l’assistant IA sur une machine ou un incident.	POST /api/chat/ask. Le serveur ajoute le contexte (parc, incidents), appelle Gemini, journalise CHAT_ASK. Pas d’assistant en lecture seule. Ni la console ni l’agent n’appellent Gemini directement.
+US-14	En tant qu’utilisateur, je suis les vulnérabilités (CVE, logiciels, correctifs).	Page Vulnérabilités accessible en lecture. Données issues de l’inventaire envoyé par l’agent.
+US-15	En tant que super administrateur, je configure les seuils, le heartbeat, le mode maintenance et l’e-mail.	Page Configuration réservée au super admin. Test d’e-mail possible.
+US-16	En tant que super administrateur, je définis des règles d’alertes.	Conditions, logique ET/OU, gravité, délai entre deux déclenchements (cooldown).
+US-17	En tant que super administrateur, je gère les comptes administrateurs.	Création, rôle (lecture, admin), activation / désactivation. Pas d’inscription publique.
+US-18	En tant qu’administrateur, je consulte le journal d’audit.	Qui a fait quoi (connexion, incident, règle, compte, chat). Export CSV possible. Pas d’audit en lecture seule.
+
+
+Spécification fonctionnelle
+
+Diagramme de cas d’utilisation du sprint 3
+
+La figure 6.1 présente le diagramme de cas d’utilisation de ce sprint. Il ne reprend pas le schéma global du chapitre 2 : uniquement incidents, IA et administration.
+
+Les trois profils héritent. La lecture suit les vulnérabilités. L’administrateur gère les incidents et consulte l’audit. Le super administrateur configure le système, les règles d’alertes et les comptes. Deux extensions sur Gérer les incidents : notification e-mail (acteur SMTP) et assistant IA (acteur Gemini).
+
+FIGURE 6.1 — Diagramme de cas d’utilisation du sprint 3
+Fichier : figures/fig-sprint3-usecase.png
+
+Les sous-sections suivantes décrivent les cas en texte. Pas d’autre diagramme de cas.
+
+
+Cas d’utilisation « Gérer les incidents »
+
+Un écart sur un poste (CPU, RAM, disque, etc.) devient un incident, sans recréer un doublon déjà ouvert du même type sur la même machine. L’administrateur en change ensuite le statut.
+
+TABLEAU 6.2 — Description textuelle « Gérer les incidents »
+
+Préoccupation	Description
+Cas d’utilisation	Gérer les incidents
+Acteur	Administrateur ou super administrateur. Agent Windows (déclenchement). Service SMTP (alerte)
+Objectif	Créer, lister, filtrer et clôturer les incidents du parc
+Préconditions	L’utilisateur est authentifié avec un rôle admin. Des machines reportent. Le mode maintenance est désactivé pour les créations automatiques.
+Postconditions	Un incident a un statut (OUVERT, EN COURS, RÉSOLU). L’action est écrite dans l’audit. Si gravité critique, un e-mail a pu partir.
+Scénario principal	1. L’agent envoie POST /api/agent/report. 2. L’API compare aux seuils. 3. S’il n’existe pas d’incident ouvert du même type sur la même machine, création (OUVERT). 4. Si gravité critique, e-mail SMTP. 5. L’administrateur ouvre Incidents (GET /api/incidents). 6. Il change le statut (PATCH /api/incidents/{id}/status).
+Scénarios alternatifs	A1. Incident déjà ouvert du même type → pas de doublon. A2. Mode maintenance → pas de création automatique. A3. Lecture seule → consultation limitée, pas de changement de statut.
+
+
+Cas d’utilisation « Interroger l’assistant IA »
+
+L’assistant aide à lire le parc ou un incident. Il ne décide pas à la place de l’administrateur. L’appel Gemini passe uniquement par le backend.
+
+TABLEAU 6.3 — Description textuelle « Interroger l’assistant IA »
+
+Préoccupation	Description
+Cas d’utilisation	Interroger l’assistant IA
+Acteur	Administrateur ou super administrateur. API Gemini
+Objectif	Obtenir une réponse contextualisée (machines, incidents, CVE)
+Préconditions	L’utilisateur n’est pas en lecture seule. L’API Gemini est configurée. Un contexte parc/incidents peut être chargé.
+Postconditions	Le texte s’affiche. L’événement CHAT_ASK est journalisé dans l’audit.
+Scénario principal	1. L’administrateur saisit une question. 2. POST /api/chat/ask. 3. L’API charge le contexte dans PostgreSQL. 4. Elle envoie question + contexte à Gemini. 5. Elle journalise CHAT_ASK. 6. La console affiche la réponse.
+Scénarios alternatifs	A1. Lecture seule → panneau chat absent. A2. Gemini indisponible → message d’erreur, pas de session cassée.
+
+
+Cas d’utilisation « Suivre les vulnérabilités »
+
+La page s’appuie sur l’inventaire logiciel et les correctifs remontés par l’agent. Elle est accessible en lecture.
+
+TABLEAU 6.4 — Description textuelle « Suivre les vulnérabilités »
+
+Préoccupation	Description
+Cas d’utilisation	Suivre les vulnérabilités
+Acteur	Lecture seule, administrateur ou super administrateur
+Objectif	Voir les CVE, logiciels concernés et correctifs Windows
+Préconditions	L’utilisateur est authentifié. L’agent a déjà envoyé un inventaire.
+Postconditions	La liste (ou un résumé) des vulnérabilités est affichée.
+Scénario principal	1. L’utilisateur ouvre Vulnérabilités. 2. GET /api/vulnerabilities. 3. Affichage des CVE, logiciels, correctifs.
+Scénarios alternatifs	A1. Inventaire vide → page sans CVE, sans erreur.
+
+
+Cas d’utilisation « Configurer le système »
+
+Les seuils (CPU, RAM, disque), l’intervalle de heartbeat, le mode maintenance et le test d’e-mail se règlent ici. Page réservée au super administrateur.
+
+TABLEAU 6.5 — Description textuelle « Configurer le système »
+
+Préoccupation	Description
+Cas d’utilisation	Configurer le système
+Acteur	Super administrateur
+Objectif	Régler les paramètres globaux de supervision et d’alerte
+Préconditions	Rôle SUPER_ADMIN. Session valide.
+Postconditions	Les nouveaux seuils / le heartbeat / le mode maintenance sont enregistrés. Un e-mail de test peut avoir été envoyé.
+Scénario principal	1. Le super administrateur ouvre Configuration. 2. GET /api/configuration. 3. Il modifie seuils, heartbeat ou maintenance. 4. PUT /api/configuration. 5. Option : test d’e-mail (POST /api/configuration/test-email).
+Scénarios alternatifs	A1. Compte lecture ou admin simple → page absente du menu. A2. Maintenance activée → plus de création automatique d’incidents.
+
+
+Cas d’utilisation « Gérer les administrateurs »
+
+Les comptes ne s’inscrivent pas seuls. Le super administrateur crée, active ou désactive, et attribue le rôle.
+
+TABLEAU 6.6 — Description textuelle « Gérer les administrateurs »
+
+Préoccupation	Description
+Cas d’utilisation	Gérer les administrateurs
+Acteur	Super administrateur
+Objectif	Créer et piloter les comptes d’accès à la console
+Préconditions	Rôle SUPER_ADMIN. L’inscription publique reste fermée.
+Postconditions	Un compte existe avec un rôle (LECTURE ou ADMIN) et un état (actif / désactivé).
+Scénario principal	1. Le super administrateur ouvre Administrateurs. 2. Il saisit nom, e-mail, mot de passe, rôle. 3. POST de création. 4. Il peut désactiver un compte ou changer le rôle.
+Scénarios alternatifs	A1. Autre rôle → page absente. A2. Compte désactivé → plus de connexion (sprint 1).
+
+
+Conception
+
+Le diagramme de classes global est au chapitre 2. Ici, les classes concernées sont surtout Incident, les règles d’alertes, User (comptes) et les traces d’audit. Deux séquences détaillent les échanges les plus denses : création d’incident avec déduplication et e-mail, puis assistant IA.
+
+Diagramme de séquence « Incident et alerte e-mail »
+
+Chaque rapport agent est comparé aux seuils. L’API cherche un incident déjà ouvert du même type sur la même machine. S’il n’y en a pas, elle crée un incident OUVERT ; si la gravité est critique, un e-mail part via SMTP. L’administrateur liste ensuite les incidents et en change le statut ; la mise à jour est écrite dans l’audit. En mode maintenance, ces créations automatiques sont coupées.
+
+FIGURE 6.2 — Diagramme de séquence : incident et alerte e-mail
+Fichier : figures/fig-sprint3-sequence-incident.png
+
+Diagramme de séquence « Assistant IA »
+
+La question va au backend (POST /api/chat/ask). Le serveur charge un contexte (machines, incidents), appelle Gemini, journalise CHAT_ASK, puis renvoie le texte. Ni la console ni l’agent n’appellent Gemini directement.
+
+FIGURE 6.3 — Diagramme de séquence : assistant IA (Gemini)
+Fichier : figures/fig-sprint3-sequence-ia.png
+
+Les règles d’alertes s’évaluent aussi à chaque rapport agent (conditions, logique ET/OU, délai entre deux déclenchements). Leur écran est présenté en réalisation.
+
+
+Réalisation
+
+Incidents. Liste filtrable (ouverts / tous), gravité, source. L’administrateur change le statut.
+
+FIGURE 6.4 — Page Incidents
+(ta capture)
+
+Vulnérabilités. CVE, logiciels, correctifs Windows, à partir de l’inventaire de l’agent.
+
+FIGURE 6.5 — Page Vulnérabilités
+(ta capture)
+
+Assistant IA. Panneau de chat : questions sur le parc, un incident, une CVE. Invisible en lecture seule.
+
+FIGURE 6.6 — Assistant IA
+(ta capture, ex. fig16-assistant-ia)
+
+Règles d’alertes. Formulaire (nom, conditions, gravité, cooldown). Super administrateur seulement.
+
+FIGURE 6.7 — Page Règles d’alertes
+(ta capture)
+
+Configuration. Seuils CPU / RAM / disque, heartbeat, mode maintenance, test d’e-mail.
+
+FIGURE 6.8 — Page Configuration
+(ta capture)
+
+Journal d’audit. Qui a fait quoi (connexion, incident, règle, compte, chat). Export CSV possible.
+
+FIGURE 6.9 — Journal d’audit
+(ta capture)
+
+Administrateurs. Création de comptes, rôle (lecture, admin), activation / désactivation. Pas d’inscription publique.
+
+FIGURE 6.10 — Page Administrateurs
+(ta capture)
+
+
+Conclusion
+
+Ce sprint a permis d’étudier et de réaliser la boucle d’exploitation de WatchDesk. Un écart sur un poste devient un incident, sans doublon inutile ; un e-mail part si c’est critique ; l’administrateur suit les statuts ; l’assistant IA aide à lire le parc, sans y accéder en lecture seule ; les vulnérabilités s’affichent à partir de l’inventaire ; le super administrateur pilote seuils, règles, comptes et traces.
+
+WatchDesk est alors utilisable de bout en bout : on entre (sprint 1), on voit le parc (sprint 2), on traite ce qui dérape (sprint 3). Le chapitre suivant est consacré à la validation, aux tests et au bilan du stage.

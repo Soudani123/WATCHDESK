@@ -1,0 +1,194 @@
+Chapitre 4 — Étude et réalisation du sprint 1 : authentification et sécurité
+(à coller dans RAPPORT-FINALE2.docx — tableaux : Insertion → Tableau)
+
+Canevas ESPRIT (à répéter aux chapitres 5 et 6) :
+4.1 Introduction
+4.2 Backlog du sprint
+4.3 Spécification fonctionnelle
+    4.3.1 Un seul diagramme de cas d’utilisation du sprint
+    4.3.2 / 4.3.3 / … Description textuelle de chaque cas (tableau, SANS nouveau schéma)
+4.4 Conception (diagrammes de séquence)
+4.5 Réalisation (interfaces)
+4.6 Conclusion (+ passage au chapitre suivant)
+
+
+4.1 Introduction
+
+Ce chapitre est consacré au premier sprint de réalisation de WatchDesk. L’enjeu est de poser la porte d’entrée de la console : sans authentification fiable, le parc, les actions distantes et l’administration des comptes n’ont pas de sens. L’objectif est qu’un utilisateur s’identifie (e-mail et mot de passe, ou compte Google déjà autorisé), confirme son identité par un second facteur, puis entre avec un rôle limité (lecture, administrateur ou super administrateur) et une session limitée dans le temps. La création des comptes, l’agent Windows et les incidents sont reportés aux sprints suivants.
+
+
+4.2 Backlog du sprint 1
+
+Le tableau 4.1 résume le backlog de ce sprint, une fois les fonctionnalités d’accès identifiées. Les histoires suivent le format « En tant que… je peux… afin de… ». Les critères d’acceptation permettent de dire si la story est réellement terminée.
+
+TABLEAU 4.1 — Backlog du sprint 1
+
+ID	Histoire utilisateur	Critères d’acceptation
+US-01	En tant qu’utilisateur, je me connecte avec un e-mail et un mot de passe afin d’accéder à la console.	Compte actif + identifiants justes → entrée. E-mail inconnu, mot de passe faux ou compte désactivé → message d’erreur, aucun jeton.
+US-02	En tant qu’utilisateur, je peux me connecter avec un compte Google déjà autorisé afin d’éviter un second mot de passe.	Jeton Google valide et e-mail déjà présent dans WatchDesk → entrée. E-mail Gmail inconnu → refus. Compte désactivé → refus.
+US-03	En tant qu’utilisateur, après le mot de passe (ou Google) je confirme mon identité avec un code 2FA afin qu’un mot de passe volé ne suffise pas.	Code TOTP juste → JWT. Code faux ou périmé → accès refusé, aucun jeton.
+US-04	En tant que nouvel utilisateur, j’active la 2FA en scannant un QR code afin de lier mon téléphone au compte.	Premier login réussi si 2FA non liée → écran QR. Scan + premier code à 6 chiffres → secret enregistré. Sans confirmation, la 2FA n’est pas activée.
+US-05	En tant qu’utilisateur, je reste connecté via un jeton JWT selon mon rôle, afin de ne voir que ce qui me concerne.	JWT 24 h, rôle dans la session. Jeton expiré → retour à la page de connexion. Lecture : pas de pages d’administration. Super admin : tout le menu.
+
+L’inscription publique est fermée (POST /api/auth/register renvoie 403). Les comptes sont créés par le super administrateur, au sprint 3.
+
+
+4.3 Spécification fonctionnelle
+
+4.3.1 Diagramme de cas d’utilisation du sprint 1
+
+La figure 4.1 présente le diagramme de cas d’utilisation de ce sprint. Il ne reprend pas le schéma global du chapitre 2 : uniquement la partie authentification.
+
+Les trois profils héritent les uns des autres : lecture seule, administrateur, super administrateur. Tous passent par le cas S’authentifier. Ce cas inclut la vérification de l’e-mail et du mot de passe, ainsi que la validation du code 2FA. Deux extensions : se connecter avec Google, et activer la 2FA (scan du QR) lors de la première mise en place. À droite, deux acteurs systèmes : Google et l’application d’authentification TOTP.
+
+FIGURE 4.1 — Diagramme de cas d’utilisation du sprint 1
+Fichier : figures/fig-sprint1-usecase.png
+
+Les sous-sections suivantes décrivent textuellement les cas principaux. Il n’y a pas de diagramme supplémentaire par cas.
+
+4.3.2 Cas d’utilisation « S’authentifier »
+
+Tout utilisateur autorisé doit s’identifier avant d’ouvrir la console. Le mot de passe n’est jamais stocké en clair (hash BCrypt). Si le compte n’existe pas, s’il est désactivé ou si le mot de passe est faux, aucun jeton n’est délivré.
+
+TABLEAU 4.2 — Description textuelle du cas d’utilisation « S’authentifier »
+
+Préoccupation	Description
+Cas d’utilisation	S’authentifier
+Acteur	Lecture seule, administrateur ou super administrateur
+Objectif	Ouvrir la console WatchDesk avec une session contrôlée
+Préconditions	Un compte a déjà été créé par le super administrateur. La 2FA du compte est déjà activée (cas du quotidien).
+Postconditions	Un JWT de 24 h est délivré. La console s’ouvre. Le menu correspond au rôle.
+Scénario principal	1. L’utilisateur saisit son e-mail et son mot de passe.
+2. La console envoie POST /api/auth/login.
+3. L’API recherche le compte et vérifie le hash BCrypt.
+4. L’API demande le code 2FA.
+5. L’utilisateur saisit le code TOTP à 6 chiffres.
+6. L’API contrôle le code, délivre le JWT (rôle + nom) et ouvre la console.
+Scénarios alternatifs	A1. E-mail inconnu ou mot de passe faux → 401, message d’erreur, pas de jeton.
+A2. Compte désactivé → 403, pas de jeton.
+A3. Code 2FA faux ou périmé → accès refusé, pas de jeton.
+
+4.3.3 Cas d’utilisation « Se connecter avec Google »
+
+Google sert de second moyen de connexion, pas d’inscription ouverte. Seul un e-mail déjà présent dans WatchDesk est accepté. La suite (2FA, JWT) est la même que pour le mot de passe.
+
+TABLEAU 4.3 — Description textuelle du cas d’utilisation « Se connecter avec Google »
+
+Préoccupation	Description
+Cas d’utilisation	Se connecter avec Google
+Acteur	Lecture seule, administrateur ou super administrateur
+Objectif	S’authentifier sans resaisir le mot de passe WatchDesk, avec un compte Google déjà autorisé
+Préconditions	L’e-mail Google existe déjà dans la table des utilisateurs. Le compte est actif.
+Postconditions	Après validation 2FA, un JWT est délivré et la console s’ouvre.
+Scénario principal	1. L’utilisateur clique sur le bouton Google.
+2. Google renvoie un jeton d’identité.
+3. La console envoie POST /api/auth/google.
+4. L’API vérifie le jeton auprès de Google et cherche l’e-mail dans WatchDesk.
+5. La 2FA est demandée, puis le JWT est délivré.
+Scénarios alternatifs	A1. E-mail Gmail absent de WatchDesk → 403, accès refusé.
+A2. Compte désactivé → 403.
+A3. Jeton Google invalide ou expiré → 401.
+
+4.3.4 Cas d’utilisation « Activer la 2FA »
+
+Ce cas n’a lieu qu’une fois par compte, tant que le téléphone n’est pas encore lié. Un QR affiché puis abandonné ne lie pas le compte : le secret n’est enregistré qu’après le premier code de confirmation.
+
+TABLEAU 4.4 — Description textuelle du cas d’utilisation « Activer la 2FA »
+
+Préoccupation	Description
+Cas d’utilisation	Activer la 2FA (scanner le QR)
+Acteur	Lecture seule, administrateur ou super administrateur
+Objectif	Lier une application d’authentification (TOTP) au compte
+Préconditions	Les identifiants (ou Google) sont valides. La 2FA n’est pas encore activée sur le compte.
+Postconditions	Le secret TOTP est enregistré. Les connexions suivantes demandent un code à 6 chiffres, sans QR.
+Scénario principal	1. L’utilisateur se connecte avec des identifiants valides.
+2. L’API constate que la 2FA n’est pas activée et génère un secret.
+3. La console affiche le QR (URI otpauth).
+4. L’utilisateur scanne le QR dans Google Authenticator (ou équivalent).
+5. Il saisit le premier code à 6 chiffres.
+6. L’API enregistre le secret, délivre le JWT et ouvre la console.
+Scénarios alternatifs	A1. Code de confirmation faux → le secret n’est pas enregistré, 2FA non activée.
+A2. Abandon avant confirmation → le compte reste sans 2FA liée.
+
+
+4.4 Conception
+
+Le diagramme de classes global de WatchDesk a été présenté au chapitre 2. Pour ce sprint, la classe concernée est essentiellement User (e-mail, mot de passe haché, rôle, compte actif, secret 2FA, dernière connexion). Nous détaillons ici les échanges, via deux diagrammes de séquence.
+
+Cinq interlocuteurs apparaissent : l’utilisateur, la console React, l’API Spring Boot, PostgreSQL et l’application d’authentification. La console ne décide pas de l’accès : elle transmet. Spring Boot vérifie et interroge PostgreSQL. Le code TOTP est calculé sur le téléphone ; WatchDesk ne l’envoie jamais par SMS.
+
+4.4.1 Diagramme de séquence « Connexion avec 2FA »
+
+Ce scénario correspond à un compte dont la 2FA est déjà activée. C’est le cas le plus fréquent.
+
+L’utilisateur saisit e-mail et mot de passe. La console appelle POST /api/auth/login. Le serveur cherche le compte. Si le hash BCrypt ne correspond pas, si l’e-mail est inconnu ou si le compte est désactivé, la chaîne s’arrête (401 ou 403), sans JWT.
+
+Si les identifiants sont valides, le serveur demande le second facteur. L’utilisateur lit le code à 6 chiffres (renouvelé toutes les 30 secondes) et le saisit. Code faux ou périmé : refus. Code juste : JWT (e-mail, rôle, nom), valable 24 heures. La console stocke le jeton et ouvre l’espace de travail. Les appels suivants portent ce jeton dans l’en-tête Authorization. S’il expire, retour à la page de connexion.
+
+La connexion Google ne change que la première étape (POST /api/auth/google). Ensuite : 2FA, puis JWT.
+
+FIGURE 4.2 — Diagramme de séquence : connexion avec 2FA
+Fichier : figures/fig-sprint1-sequence-login.png
+
+4.4.2 Diagramme de séquence « Activation 2FA »
+
+Après un premier login valide, si la 2FA n’est pas liée, le serveur génère un secret et un QR. L’utilisateur scanne, confirme avec le premier code, puis le secret est persisté. Aux connexions suivantes, on revient au scénario 4.4.1.
+
+FIGURE 4.3 — Diagramme de séquence : activation 2FA (QR)
+Fichier : figures/fig-sprint1-sequence-2fa.png
+
+
+4.5 Réalisation
+
+Les interfaces ci-dessous correspondent aux cas décrits. Les captures se collent juste sous chaque légende.
+
+4.5.1 Page de connexion
+
+L’écran affiche WatchDesk, un formulaire e-mail / mot de passe, un bouton Se connecter, puis un bouton Google. Un bandeau indique que la connexion est réservée aux comptes créés par le super administrateur. Un message d’erreur s’affiche si le compte n’existe pas, s’il est désactivé, ou si le mot de passe est faux.
+
+FIGURE 4.4 — Interface de connexion
+(ta capture login)
+
+4.5.2 Authentification à deux facteurs
+
+Après un premier login valide, si le téléphone n’est pas encore lié, la console affiche un QR à scanner avec Google Authenticator (ou Microsoft Authenticator), puis un champ pour le code à 6 chiffres.
+
+FIGURE 4.5 — Demande de scan du QR code
+(capture WatchDesk avec le QR)
+
+FIGURE 4.6 — Scan depuis le téléphone
+(capture application d’authentification)
+
+Aux connexions suivantes, le QR n’apparaît plus : seule la saisie du code TOTP est demandée. Un code faux ou périmé refuse l’accès ; aucun jeton n’est émis.
+
+FIGURE 4.7 — Saisie du code 2FA
+(capture du champ à 6 chiffres)
+
+4.5.3 Session et rôles
+
+Une fois les deux facteurs validés, la console s’ouvre. Le menu latéral dépend du rôle. Un bouton de déconnexion efface la session.
+
+FIGURE 4.8 — Console après authentification
+(capture aperçu ou menu, selon le rôle)
+
+TABLEAU 4.5 — Accès visible selon le rôle
+
+Rôle	Accès visible après connexion
+LECTURE	Aperçu, Ordinateurs, Incidents, Vulnérabilités, Rapports (consultation).
+ADMIN	Idem + journal d’audit et actions métier.
+SUPER_ADMIN	Idem + Administrateurs, Règles d’alertes, Configuration, Agent Windows.
+
+
+4.6 Conclusion
+
+Ce sprint a permis d’étudier et de réaliser l’accès à WatchDesk. Un utilisateur s’identifie par e-mail et mot de passe, ou par un compte Google déjà présent dans le système ; il confirme son identité par un code TOTP ; la console ne s’ouvre qu’après délivrance d’un jeton JWT de vingt-quatre heures, et le menu dépend du rôle. L’inscription publique est fermée.
+
+L’authentification, à elle seule, ne montre pas encore le parc. Une fois la session ouverte, il reste à faire apparaître les postes Windows, à lire leur état et à pouvoir agir dessus. Le chapitre suivant est consacré au sprint 2 : agent de collecte, aperçu, liste des ordinateurs, actions à distance et rapports.
+
+
+Notes de collage (ne pas mettre dans le rapport)
+- Convertir les tableaux 4.1 à 4.5 via Insertion → Tableau.
+- Figure 4.1 = fig-sprint1-usecase.png (le SEUL cas d’utilisation du sprint).
+- Figures 4.2 et 4.3 = séquences.
+- Figures 4.4 à 4.8 = tes captures.
+- Pas de diagramme de cas par tâche : seulement les tableaux 4.2, 4.3 et 4.4.

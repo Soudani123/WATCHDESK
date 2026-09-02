@@ -1,0 +1,1 @@
+- [x] Step 1: Edit src/App.js to fix import path from './Dashboard' to './pages/Dashboard'\n

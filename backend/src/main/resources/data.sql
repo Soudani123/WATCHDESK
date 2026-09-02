@@ -1,0 +1,27 @@
+-- Colonnes attendues par l'entité Computer mais absentes des anciennes tables
+ALTER TABLE computers ADD COLUMN IF NOT EXISTS risk_score integer NOT NULL DEFAULT 0;
+ALTER TABLE computers ADD COLUMN IF NOT EXISTS system_logs text;
+ALTER TABLE computers ADD COLUMN IF NOT EXISTS security_logs text;
+ALTER TABLE computers ADD COLUMN IF NOT EXISTS app_logs text;
+ALTER TABLE computers ADD COLUMN IF NOT EXISTS ram_used_mb bigint;
+ALTER TABLE computers ADD COLUMN IF NOT EXISTS ram_total_mb bigint;
+ALTER TABLE computers ADD COLUMN IF NOT EXISTS app_name varchar(255);
+ALTER TABLE computers ADD COLUMN IF NOT EXISTS app_vendor varchar(255);
+ALTER TABLE computers ADD COLUMN IF NOT EXISTS risk_source varchar(255);
+ALTER TABLE computers ADD COLUMN IF NOT EXISTS cve varchar(255);
+ALTER TABLE computers ADD COLUMN IF NOT EXISTS os_version varchar(255);
+ALTER TABLE computers ADD COLUMN IF NOT EXISTS os_build varchar(64);
+ALTER TABLE computers ADD COLUMN IF NOT EXISTS installed_software text;
+ALTER TABLE computers ADD COLUMN IF NOT EXISTS pending_updates text;
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS source varchar(50);
+ALTER TABLE incidents ADD COLUMN IF NOT EXISTS event_id varchar(50);
+ALTER TABLE configurations ADD COLUMN IF NOT EXISTS cpu_warning integer;
+ALTER TABLE configurations ADD COLUMN IF NOT EXISTS ram_warning integer;
+ALTER TABLE configurations ADD COLUMN IF NOT EXISTS disk_critical_gb integer;
+ALTER TABLE configurations ADD COLUMN IF NOT EXISTS offline_minutes integer;
+UPDATE configurations SET cpu_warning = 75 WHERE cpu_warning IS NULL;
+UPDATE configurations SET ram_warning = 80 WHERE ram_warning IS NULL;
+UPDATE configurations SET disk_critical_gb = 10 WHERE disk_critical_gb IS NULL;
+UPDATE configurations SET offline_minutes = 3 WHERE offline_minutes IS NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at timestamp;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS enabled boolean;

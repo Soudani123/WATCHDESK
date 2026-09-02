@@ -1,0 +1,266 @@
+Chapitre 7 — Tests, validation et bilan
+(même mise en forme que les chapitres 4, 5 et 6 — coller dans RAPPORT-FINALE2.docx)
+
+
+Introduction
+
+WatchDesk n’est pas qu’un écran de statistiques. Un faux positif crée du bruit ; un ordre mal routé peut redémarrer un poste de travail en pleine journée. Avant de considérer le produit comme livré, il fallait donc vérifier, sprint après sprint, que la chaîne tient de bout en bout : agent → API → PostgreSQL → console, et que les droits (lecture, administrateur, super administrateur) ne se mélangent pas.
+
+Ce chapitre présente l’environnement de recette, la stratégie de test retenue, puis les quatre campagnes réellement menées : tests unitaires, tests d’API, tests d’intégration et recette fonctionnelle. Il se poursuit par les tests liés aux rôles et à la sécurité, les difficultés rencontrées et les corrections apportées, les modalités de déploiement, et enfin le bilan du projet et du stage.
+
+
+Cadre des tests
+
+Les tests ont été menés en recette locale, sur le poste de développement, dans la même configuration que celle décrite au chapitre 3. Il n’y a pas de chaîne d’intégration continue : les campagnes sont déclenchées manuellement, à la fin de chaque sprint et avant chaque démonstration.
+
+TABLEAU 7.1 — Environnement de recette
+
+Composant	Configuration
+Serveur applicatif	Spring Boot 3.2.5 (Java 21), port 8080, lancé par mvnw spring-boot:run
+Console web	React 19 / Vite 6, port 3000 (npm start), build de production dans build/ (npm run build)
+Base de données	PostgreSQL, base monitoring, port 5432, schéma généré par Hibernate (ddl-auto=update)
+Agent	MonitoringAgent (C# .NET), exécuté sur un poste Windows du réseau local
+Outils	Postman (API), JUnit 5 / Surefire (unitaire), pgAdmin 4 (preuve en base), Observateur d’événements Windows
+
+La stratégie combine quatre niveaux, du plus fin au plus global. Les tests unitaires vérifient une classe isolée, sans base ni réseau. Les tests d’API contrôlent le contrat REST, indépendamment de l’interface. Les tests d’intégration suivent une donnée réelle depuis le poste supervisé jusqu’à l’écran. La recette fonctionnelle rejoue enfin les histoires utilisateur des trois sprints, telles qu’elles ont été écrites dans les backlogs.
+
+Les parcours d’écran ont déjà été illustrés dans les chapitres 4 à 6 : les captures ne sont pas reprises ici. Ce chapitre ne conserve que les preuves de test proprement dites.
+
+
+Tests unitaires
+
+Les tests unitaires portent sur la logique qui ne peut pas être validée à l’œil : le calcul des codes à usage unique de la double authentification. Cette partie est critique, car un défaut d’implémentation se traduirait soit par des codes systématiquement refusés, soit, plus grave, par des codes acceptés à tort.
+
+La classe TotpServiceTest vérifie le service face à une implémentation de référence indépendante, écrite directement à partir des RFC 4226 et 6238. C’est cette comparaison qui garantit la compatibilité avec Google Authenticator et Microsoft Authenticator : si les deux implémentations produisent le même code pour le même secret et le même instant, l’application mobile produira le même également.
+
+TABLEAU 7.2 — Cas couverts par les tests unitaires du service TOTP
+
+Cas de test	Objectif	Résultat
+generatedSecretIsBase32AndLongEnough	Le secret généré fait 32 caractères et n’utilise que l’alphabet Base32	Réussi
+otpAuthUriCarriesIssuerAndSecret	L’URI otpauth contient l’émetteur, le secret, le nombre de chiffres et la période	Réussi
+acceptsCodeOfCurrentTimeStep	Un code calculé pour le pas de temps courant est accepté	Réussi
+toleratesOneStepOfClockDrift	Un code en avance ou en retard d’un pas (30 s) reste accepté	Réussi
+rejectsOutdatedCode	Un code vieux de cinq pas (2 min 30) est refusé	Réussi
+rejectsMalformedInput	Un code trop court, alphabétique ou vide est refusé sans erreur technique	Réussi
+codesDifferBetweenSecrets	Un code valide pour un autre secret est refusé	Réussi
+
+La campagne se lance par mvnw test -Dtest=TotpServiceTest et se termine par « Tests run: 7, Failures: 0, Errors: 0 ». La classe BackendApplicationTests complète cette vérification en démarrant le contexte Spring : elle contrôle que l’ensemble des composants (contrôleurs, services, dépôts, source de données) s’assemble sans erreur de configuration.
+
+FIGURE 7.1 — Résultat des tests unitaires (JUnit / Surefire)
+(capture de la console Maven ou de la fenêtre de tests IntelliJ)
+
+
+Tests API (Postman)
+
+Les tests d’API contrôlent les contrats REST utilisés par la console et par l’agent, sans passer par l’interface. Chaque requête est jouée dans Postman ; on vérifie le code HTTP et la forme de la réponse JSON. Cette campagne a permis de valider en particulier la nouvelle séquence d’authentification : le mot de passe ne délivre plus de jeton à lui seul.
+
+TABLEAU 7.3 — Campagne de tests des services d’authentification
+
+Test	Requête	Réponse attendue
+E-mail inconnu	POST /api/auth/login	401, « Utilisateur non trouvé. »
+Mot de passe faux	POST /api/auth/login	401, « Mot de passe incorrect. »
+Compte désactivé	POST /api/auth/login	403, « Compte désactivé. »
+Identifiants valides	POST /api/auth/login	200, challenge de second facteur, aucun jeton
+Première activation	POST /api/auth/login (2FA non liée)	200, setupRequired = true et URI otpauth pour le QR
+Code TOTP faux	POST /api/auth/2fa/verify	401, « Code incorrect ou expiré. »
+Challenge expiré	POST /api/auth/2fa/verify	401, « Session de connexion expirée. »
+Code TOTP correct	POST /api/auth/2fa/verify	200, jeton JWT, e-mail, nom et rôle
+Jeton Google invalide	POST /api/auth/google	401
+E-mail Gmail inconnu	POST /api/auth/google	403
+Inscription publique	POST /api/auth/register	403
+
+TABLEAU 7.4 — Campagne de tests des services métier
+
+Test	Requête	Réponse attendue
+Rapport de l’agent	POST /api/agent/report	200, machine créée ou mise à jour
+Tâches en attente	GET /api/agent/check-tasks/{id}	200, action à exécuter ou NONE
+Téléchargement de l’agent	GET /api/agent/download	200, fichier exécutable
+Aperçu du parc	GET /api/dashboard	200, compteurs du parc
+Liste des machines	GET /api/computers	200, tableau des postes
+Machine par adresse IP	GET /api/computers/ip/{ip}	200, ou 404 si la machine est inconnue
+Liste des incidents	GET /api/incidents	200, incidents triés du plus récent au plus ancien
+Incidents ouverts	GET /api/incidents/open	200, incidents non clôturés uniquement
+Changement de statut	PATCH /api/incidents/{id}/status	200, statut mis à jour et action journalisée
+Vulnérabilités	GET /api/vulnerabilities	200, CVE, logiciels et correctifs
+Assistant IA	POST /api/chat/ask	200, réponse textuelle et journalisation CHAT_ASK
+Configuration	GET puis PUT /api/configuration	200, seuils et heartbeat enregistrés
+Test d’e-mail	POST /api/configuration/test-email	200, message reçu sur la boîte configurée
+Règles d’alertes	POST /api/rules	200, règle créée
+Activation d’une règle	PATCH /api/rules/{id}/enabled	200, règle activée ou désactivée
+Création de compte	POST /api/users	200, compte créé avec son rôle
+Mot de passe trop court	POST /api/users	400, « Mot de passe : 6 caractères minimum. »
+E-mail déjà utilisé	POST /api/users	409, « Cet e-mail existe déjà. »
+Suppression du super admin	DELETE /api/users/{id}	400, suppression refusée
+Journal d’audit	GET /api/audit	200, entrées paginées
+Export du journal	GET /api/audit/export.csv	200, fichier CSV
+
+FIGURE 7.2 — Postman : connexion refusée (401)
+(capture de la requête et de la réponse)
+
+FIGURE 7.3 — Postman : connexion valide renvoyant un challenge de second facteur
+(capture montrant l’absence de jeton à cette étape)
+
+FIGURE 7.4 — Postman : validation du code TOTP et délivrance du jeton JWT
+(capture de la réponse 200)
+
+FIGURE 7.5 — Postman : rapport de l’agent accepté (200)
+(capture de POST /api/agent/report)
+
+FIGURE 7.6 — Postman : liste des machines (200)
+(capture de GET /api/computers)
+
+
+Tests d’intégration
+
+Les tests d’intégration suivent une même donnée d’un bout à l’autre de la chaîne. Ils ne se contentent pas d’un code HTTP : la vérification se fait dans la base, avec pgAdmin, et à l’écran, dans la console. C’est le seul moyen de s’assurer que l’agent, le serveur et l’interface parlent bien du même poste.
+
+TABLEAU 7.5 — Scénarios d’intégration
+
+Scénario	Déroulé	Preuve attendue
+Remontée d’un poste	L’agent démarre sur une machine Windows et envoie son premier rapport	Une ligne apparaît dans la table des ordinateurs ; le poste s’affiche dans la console
+Mise à jour de l’état	L’agent envoie un nouveau rapport au cycle suivant	La même ligne est mise à jour (pas de doublon) ; la date de dernière vue change
+Création d’un incident	Le rapport dépasse un seuil configuré	Un incident est créé au statut OUVERT et s’affiche dans la page Incidents
+Absence de doublon	Le même dépassement est renvoyé au cycle suivant	Aucun second incident ouvert du même type sur la même machine
+Alerte critique	Un incident de gravité critique est créé	Un e-mail part par SMTP et l’envoi est visible dans le journal du serveur
+Mode maintenance	Le mode maintenance est activé dans la configuration	Plus de création automatique d’incident, donc plus d’alerte
+Action à distance	Un administrateur demande un redémarrage depuis la console	L’ordre est enregistré, l’agent le récupère à l’appel suivant et l’exécute sur le poste
+Traçabilité	Une action d’administration est effectuée	Une entrée correspondante apparaît dans le journal d’audit
+
+FIGURE 7.7 — pgAdmin : la machine et son dernier état après le rapport de l’agent
+(capture de la table des ordinateurs)
+
+FIGURE 7.8 — Journal de l’agent Windows après un cycle de collecte
+(capture de la console de l’agent)
+
+
+Recette fonctionnelle
+
+La recette rejoue les histoires utilisateur des trois sprints, dans les conditions d’usage réelles et avec les trois profils. Chaque scénario est considéré comme validé lorsque le résultat observé correspond au critère d’acceptation écrit dans le backlog du sprint concerné.
+
+TABLEAU 7.6 — Recette du sprint 1 : authentification et sécurité
+
+Scénario	Résultat attendu	État
+Connexion avec des identifiants valides puis un code TOTP correct	La console s’ouvre, un jeton de 24 h est délivré	Validé
+Connexion avec un mot de passe erroné	Accès refusé, aucun jeton	Validé
+Première connexion sans téléphone lié	Le QR s’affiche ; le secret n’est enregistré qu’après le premier code	Validé
+Abandon avant confirmation du QR	La double authentification reste inactive sur le compte	Validé
+Connexions suivantes	Seul le code à 6 chiffres est demandé, le QR ne réapparaît pas	Validé
+Connexion Google avec un compte déjà autorisé	Second facteur demandé, puis accès	Validé
+Connexion Google avec un e-mail inconnu	Accès refusé	Validé
+Compte désactivé par le super administrateur	Connexion impossible	Validé
+Jeton expiré	Retour automatique à la page de connexion	Validé
+
+TABLEAU 7.7 — Recette du sprint 2 : agent, aperçu et parc
+
+Scénario	Résultat attendu	État
+Installation de l’agent sur un poste	Le poste apparaît dans la liste après le premier rapport	Validé
+Consultation de l’aperçu	Compteurs en ligne, en alerte et hors ligne cohérents avec le parc	Validé
+Consultation d’une machine	Détail du poste : ressources, dernière vue, inventaire	Validé
+Poste éteint	La machine bascule en hors ligne après le délai de heartbeat	Validé
+Redémarrage à distance	Confirmation demandée, ordre exécuté au cycle suivant	Validé
+Export PDF et Excel	Fichiers générés à partir des données affichées	Validé
+Profil lecture seule	Les boutons d’action ne sont pas proposés	Validé
+
+TABLEAU 7.8 — Recette du sprint 3 : incidents, IA et administration
+
+Scénario	Résultat attendu	État
+Filtrage des incidents	La liste se restreint au statut ou à la gravité choisis	Validé
+Changement de statut	OUVERT → EN COURS → RÉSOLU, avec trace dans l’audit	Validé
+Notification d’un incident critique	E-mail reçu sur l’adresse configurée	Validé
+Question à l’assistant IA	Réponse contextualisée, événement CHAT_ASK journalisé	Validé
+Assistant indisponible	Message d’erreur clair, session conservée	Validé
+Consultation des vulnérabilités	CVE et correctifs issus de l’inventaire de l’agent	Validé
+Réglage des seuils	Nouvelles valeurs prises en compte au rapport suivant	Validé
+Création d’une règle d’alerte	Règle appliquée, avec respect du délai entre deux déclenchements	Validé
+Création puis désactivation d’un compte	Le compte créé se connecte, puis ne se connecte plus	Validé
+Export du journal d’audit	Fichier CSV conforme à l’affichage	Validé
+
+
+Tests des rôles et de la sécurité
+
+Le contrôle d’accès a fait l’objet d’une campagne à part, car c’est le point où une erreur se voit le moins et coûte le plus cher. Trois comptes ont été créés pour l’occasion, un par profil, et le même parcours a été rejoué avec chacun d’eux.
+
+TABLEAU 7.9 — Vérification des accès par profil
+
+Vérification	LECTURE	ADMIN	SUPER_ADMIN
+Aperçu, ordinateurs, incidents, vulnérabilités, rapports	Visible	Visible	Visible
+Actions à distance sur un poste	Masqué	Autorisé	Autorisé
+Changement de statut d’un incident	Masqué	Autorisé	Autorisé
+Assistant IA	Masqué	Autorisé	Autorisé
+Journal d’audit	Masqué	Visible	Visible
+Configuration, règles d’alertes, comptes, déploiement de l’agent	Masqué	Masqué	Visible
+
+D’autres vérifications de sécurité ont été menées au niveau des données : les mots de passe sont stockés hachés avec BCrypt et jamais renvoyés par l’API, qui n’expose qu’une vue publique du compte ; le secret de double authentification n’est écrit en base qu’après confirmation d’un premier code ; l’inscription publique est fermée ; le compte super administrateur ne peut être ni supprimé, ni désactivé, ni rétrogradé ; enfin, chaque action sensible laisse une trace nominative dans le journal d’audit.
+
+
+Difficultés rencontrées
+
+Les campagnes de test ont mis en évidence plusieurs problèmes qui ont demandé une reprise du code. Ils sont rassemblés ici parce qu’ils font partie du travail réel de validation.
+
+TABLEAU 7.10 — Principales difficultés et corrections apportées
+
+Difficulté	Analyse	Correction
+Répétition des incidents	Chaque cycle de collecte recréait un incident pour la même anomalie, rendant la liste inutilisable	Recherche d’un incident déjà ouvert du même type sur la même machine avant toute création
+Bruit des alertes par e-mail	Une anomalie persistante déclenchait un envoi à chaque évaluation	Délai minimal entre deux déclenchements d’une même règle, et coupure des créations automatiques en mode maintenance
+Codes TOTP refusés	L’horloge du téléphone n’est jamais exactement celle du serveur	Tolérance d’un pas de 30 secondes avant et après le pas courant
+Secret de 2FA enregistré trop tôt	Un QR affiché puis abandonné aurait bloqué le compte à la connexion suivante	Conservation du secret en mémoire pendant cinq minutes, écriture en base seulement après un code confirmé
+Postes restant « en ligne » à tort	Une machine éteinte n’envoie plus rien, donc rien ne signalait son absence	Bascule en hors ligne à l’expiration du délai de heartbeat
+Déploiement de l’agent à distance	Les partages administratifs et l’exécution distante échouent selon la configuration du poste cible	Trois modes proposés : lien d’installation, démarrage local, déploiement distant, avec un message d’erreur explicite en cas d’échec
+
+
+Déploiement
+
+Le déploiement suit les trois composants de l’architecture décrite au chapitre 3. Le serveur est empaqueté par Maven en une archive exécutable, lancée sur la machine hôte avec sa configuration de base de données, de messagerie et de clés d’API. La console est compilée par Vite en fichiers statiques, publiés derrière l’adresse du serveur. L’agent, enfin, est installé sur chaque poste à superviser.
+
+TABLEAU 7.11 — Modes d’installation de l’agent
+
+Mode	Principe	Usage
+Lien d’installation	La console produit une commande PowerShell de téléchargement et d’installation	Poste accessible par son utilisateur, hors domaine
+Démarrage local	L’agent déjà présent sur la machine est lancé en tâche de fond	Poste de démonstration ou machine du serveur
+Déploiement distant	Copie du dossier de l’agent puis exécution à distance avec un compte administrateur	Parc homogène, partages administratifs disponibles
+
+Après installation, le poste n’apparaît dans la console qu’au premier rapport transmis : cette apparition sert de contrôle de bon déploiement.
+
+FIGURE 7.9 — Page de déploiement de l’agent Windows
+(capture de la console, profil super administrateur)
+
+
+Bilan du projet
+
+À la fin du troisième sprint, les dix-huit histoires utilisateur des trois backlogs sont réalisées et validées. La plateforme couvre le cycle complet visé au début du stage : on entre dans la console de façon sécurisée, on voit l’état réel du parc, on traite ce qui dérape et on garde une trace de ce qui a été fait.
+
+TABLEAU 7.12 — Couverture des objectifs du projet
+
+Objectif annoncé	État
+Accès sécurisé avec rôles et double authentification	Réalisé
+Collecte de l’état des postes par un agent léger	Réalisé
+Vue temps réel du parc et détail par machine	Réalisé
+Détection des incidents sans doublons	Réalisé
+Notification des incidents critiques par e-mail	Réalisé
+Suivi des vulnérabilités à partir de l’inventaire	Réalisé
+Actions à distance sur les postes	Réalisé
+Exports de rapports PDF et Excel	Réalisé
+Assistant de diagnostic basé sur l’intelligence artificielle	Réalisé
+Journal d’audit des actions d’administration	Réalisé
+
+Sur le plan personnel, ce projet a été l’occasion de conduire une application complète, de la spécification jusqu’à la recette, en tenant les trois couches à la fois : un agent système en C# qui interroge les compteurs de performance et les journaux Windows, un serveur Spring Boot qui centralise et interprète, et une console React destinée à des utilisateurs qui n’ont pas le temps de chercher l’information. La méthode Scrum a permis de livrer par incréments démontrables plutôt que de tout découvrir à la fin, et les campagnes de test ont montré qu’un critère d’acceptation écrit à l’avance vaut mieux qu’une vérification improvisée.
+
+
+Limites et perspectives
+
+Le travail réalisé laisse volontairement plusieurs pistes ouvertes. La recette a été menée manuellement : la mise en place d’une chaîne d’intégration continue rejouant les tests à chaque modification serait la suite logique. Le contrôle des rôles s’appuie aujourd’hui sur la console et sur le jeton délivré à la connexion ; le durcir par un filtre appliqué systématiquement à chaque appel de l’API renforcerait la défense en profondeur. Enfin, la solution a été validée sur un parc de taille réduite : une campagne de montée en charge serait nécessaire avant un déploiement à grande échelle, tout comme le passage de l’agent en service Windows pour qu’il démarre sans session ouverte.
+
+
+Conclusion
+
+Ce chapitre a présenté la validation de WatchDesk. Les tests unitaires ont sécurisé la partie la plus délicate du code, le calcul des codes de double authentification, en la confrontant à une implémentation de référence. Les tests d’API ont confirmé les contrats utilisés par la console et par l’agent, notamment le fait qu’un mot de passe valide ne suffit plus à obtenir un jeton. Les tests d’intégration ont suivi une donnée réelle du poste supervisé jusqu’à l’écran, et la recette fonctionnelle a rejoué les dix-huit histoires utilisateur des trois sprints, avec les trois profils d’accès.
+
+Les difficultés rencontrées, en particulier la répétition des incidents et le bruit des alertes, ont été corrigées et vérifiées à nouveau. La plateforme répond ainsi aux objectifs fixés au début du stage : donner à une équipe de support une console unique, claire et traçable pour superviser un parc de postes Windows.
+
+
+Notes de collage (ne pas mettre dans le rapport)
+- Convertir les tableaux 7.1 à 7.12 via Insertion → Tableau (les colonnes sont séparées par des tabulations).
+- Figures 7.1 à 7.9 = tes captures : résultat JUnit, écrans Postman, pgAdmin, journal de l’agent, page de déploiement.
+- Les tableaux 7.3 et 7.4 donnent la réponse attendue : joue la campagne dans Postman et garde les captures correspondantes.
+- Les colonnes « État » des tableaux 7.6 à 7.8 sont à confirmer par ta propre exécution avant l’impression.
+- Penser à ajouter les nouvelles figures et les nouveaux tableaux dans la liste des figures et la liste des tables.

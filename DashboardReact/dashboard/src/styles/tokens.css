@@ -1,0 +1,102 @@
+:root {
+  --bg-canvas: #F4F4F1;
+  --bg-sidebar: #FFFFFF;
+  --bg-topbar: #FFFFFF;
+  --bg-surface: #FFFFFF;
+  --bg-surface-hover: #ECECE8;
+  --bg-muted: #EBEBE6;
+  --border: #E4E4DE;
+  --border-subtle: rgba(20, 20, 18, 0.06);
+  --text-primary: #1A1A18;
+  --text-secondary: #6B6B64;
+  --text-tertiary: #8A8A82;
+  --accent: #1E88E5;
+  --accent-hover: #1565C0;
+  --accent-muted: rgba(30, 136, 229, 0.12);
+  --accent-on: #FFFFFF;
+  --focus-ring: rgba(30, 136, 229, 0.35);
+
+  --status-critical: #E53935;
+  --status-critical-bg: rgba(229, 57, 53, 0.10);
+  --status-warning: #FB8C00;
+  --status-warning-bg: rgba(251, 140, 0, 0.12);
+  --status-healthy: #43A047;
+  --status-healthy-bg: rgba(67, 160, 71, 0.10);
+
+  --chart-green: #4CAF50;
+  --chart-blue: #2196F3;
+  --chart-orange: #FF9800;
+  --chart-red: #F44336;
+  --chart-teal: #26A69A;
+  --chart-gray: #B0BEC5;
+
+  --font: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  --text-overline: 11px;
+  --text-caption: 12px;
+  --text-body: 13px;
+  --text-body-lg: 14px;
+  --text-section: 13px;
+  --text-title: 24px;
+  --text-metric: 32px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  --sidebar-width: 240px;
+  --icon-btn: 32px;
+}
+
+[data-theme="dark"] {
+  --bg-canvas: #0C0C0D;
+  --bg-sidebar: #111113;
+  --bg-topbar: #111113;
+  --bg-surface: #161618;
+  --bg-surface-hover: #1C1C1F;
+  --bg-muted: #1A1A1D;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --text-primary: #EDEDED;
+  --text-secondary: #A1A1A4;
+  --text-tertiary: #737378;
+  --accent: #42A5F5;
+  --accent-hover: #64B5F6;
+  --accent-muted: rgba(66, 165, 245, 0.16);
+  --accent-on: #FFFFFF;
+  --focus-ring: rgba(66, 165, 245, 0.45);
+
+  --status-critical: #EF5350;
+  --status-critical-bg: rgba(239, 83, 80, 0.14);
+  --status-warning: #FFA726;
+  --status-warning-bg: rgba(255, 167, 38, 0.14);
+  --status-healthy: #66BB6A;
+  --status-healthy-bg: rgba(102, 187, 106, 0.14);
+
+  --chart-green: #66BB6A;
+  --chart-blue: #42A5F5;
+  --chart-orange: #FFA726;
+  --chart-red: #EF5350;
+  --chart-teal: #4DB6AC;
+  --chart-gray: #78909C;
+}
+
+html {
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+}
