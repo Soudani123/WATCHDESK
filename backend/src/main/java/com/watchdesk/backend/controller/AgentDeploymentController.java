@@ -9,7 +9,7 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/agent")
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:5173"})
+@CrossOrigin(origins = "*")
 public class AgentDeploymentController {
 
     // 🟢 1. NOUVEAU ENDPOINT : Requis par ton interface pour simuler/générer le lien et la commande PowerShell
