@@ -6,7 +6,9 @@ import { GoogleOAuthProvider } from '@react-oauth/google';
 import { clearSession, saveSession } from './lib/api';
 import { applyTheme, readStoredTheme } from './lib/theme';
 
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
+const GOOGLE_CLIENT_ID =
+  import.meta.env.VITE_GOOGLE_CLIENT_ID ||
+  "788525827235-qcv2ovgs9v1hif54lv38c8bgtcskdmn5.apps.googleusercontent.com";
 
 function App() {
   useEffect(() => {
