@@ -80,7 +80,8 @@ export default function AgentWindowsPage({ theme }) {
       const response = await api(`/api/agent/download?serverUrl=${encodeURIComponent(serverUrl)}&apiKey=watchdesk-secret-key-2026`);
       
       if (!response.ok) {
-        throw new Error('Erreur lors de la génération du ZIP');
+        const msg = await response.text();
+        throw new Error(msg || "Erreur lors de la génération du ZIP");
       }
       
       const blob = await response.blob();

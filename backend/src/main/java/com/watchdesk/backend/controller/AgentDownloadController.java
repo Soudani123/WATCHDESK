@@ -1,16 +1,17 @@
 package com.watchdesk.backend.controller;
 
 import org.springframework.core.io.ByteArrayResource;
-import org.springframework.core.io.Resource;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,30 +24,32 @@ import java.util.zip.ZipOutputStream;
 @CrossOrigin(origins = "*")
 public class AgentDownloadController {
 
+    private static final String PACKAGED_EXE = "agent/WatchDeskAgent.exe";
+
     private static final List<String> EXE_CANDIDATES = List.of(
-            "C:/Users/User/Desktop/ALL-FILES/Monitoring-agent/MonitoringAgent/bin/Debug/net10.0-windows/MonitoringAgent.exe",
             "C:/Users/User/Desktop/ALL-FILES/Monitoring-agent/MonitoringAgent/bin/Release/net10.0-windows/win-x64/publish/MonitoringAgent.exe",
-            "C:/Users/User/Desktop/ALL-FILES/Monitoring-agent/MonitoringAgent/bin/Release/net10.0-windows/MonitoringAgent.exe",
-            "C:/WatchDesk/WatchDeskAgent.exe",
-            "C:/Users/User/OneDrive/ALL-FILES/Monitoring-agent/MonitoringAgent/bin/Release/net8.0-windows/win-x64/publish/MonitoringAgent.exe"
+            "C:/Users/User/Desktop/ALL-FILES/Monitoring-agent/MonitoringAgent/bin/Debug/net10.0-windows/MonitoringAgent.exe",
+            "C:/WatchDesk/WatchDeskAgent.exe"
     );
 
     @GetMapping("/download")
-    public ResponseEntity<Resource> downloadAgent(
+    public ResponseEntity<?> downloadAgent(
             @RequestParam(defaultValue = "http://localhost:8080") String serverUrl,
             @RequestParam(defaultValue = "watchdesk-secret-key-2026") String apiKey) throws IOException {
 
         String cleanUrl = serverUrl == null ? "http://localhost:8080" : serverUrl.trim().replaceAll("/+$", "");
-        File exeFile = resolveExe();
-        if (exeFile == null) {
-            throw new FileNotFoundException("MonitoringAgent.exe introuvable. Compilez l'agent (dotnet build) puis réessayez.");
+        byte[] exeBytes = loadExeBytes();
+        if (exeBytes == null || exeBytes.length == 0) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .contentType(MediaType.TEXT_PLAIN)
+                    .body("Agent Windows introuvable sur le serveur. Redeployez le backend avec WatchDeskAgent.exe.");
         }
 
         Path tempZip = Files.createTempFile("WatchDeskAgent", ".zip");
         try (FileOutputStream fos = new FileOutputStream(tempZip.toFile());
              ZipOutputStream zos = new ZipOutputStream(fos)) {
 
-            addToZip(zos, "WatchDeskAgent.exe", Files.readAllBytes(exeFile.toPath()));
+            addToZip(zos, "WatchDeskAgent.exe", exeBytes);
 
             String appsettings = "{\n" +
                     "  \"ServerUrl\": \"" + cleanUrl + "\",\n" +
@@ -94,11 +97,17 @@ public class AgentDownloadController {
                 .body(resource);
     }
 
-    private File resolveExe() {
+    private byte[] loadExeBytes() throws IOException {
+        ClassPathResource packaged = new ClassPathResource(PACKAGED_EXE);
+        if (packaged.exists()) {
+            try (InputStream in = packaged.getInputStream()) {
+                return in.readAllBytes();
+            }
+        }
         for (String path : EXE_CANDIDATES) {
             File file = new File(path);
             if (file.isFile()) {
-                return file;
+                return Files.readAllBytes(file.toPath());
             }
         }
         return null;
