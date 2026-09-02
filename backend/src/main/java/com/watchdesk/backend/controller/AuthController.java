@@ -173,9 +173,9 @@ public class AuthController {
     }
 
     /**
-     * Prépare le second facteur. Si le téléphone n'est pas encore lié, un secret est généré
-     * en mémoire et l'URI otpauth est renvoyée pour affichage du QR : rien n'est écrit en base
-     * tant que l'utilisateur n'a pas confirmé avec un premier code.
+     * Prépare le second facteur. Le secret TOTP est réutilisé d'une tentative à l'autre
+     * (sinon Authenticator garde l'ancienne clé et le code est toujours refusé).
+     * twoFactorEnabled reste false tant qu'un code n'a pas été confirmé.
      */
     private TwoFactorChallengeResponse startTwoFactorChallenge(User user) {
         if (user.isTwoFactorEnabled()) {
@@ -183,7 +183,13 @@ public class AuthController {
             return new TwoFactorChallengeResponse(challengeId, false, user.getEmail(), null, null);
         }
 
-        String secret = totpService.generateSecret();
+        String secret = user.getTwoFactorSecret();
+        if (secret == null || secret.isBlank()) {
+            secret = totpService.generateSecret();
+            user.setTwoFactorSecret(secret);
+            user.setTwoFactorEnabled(false);
+            userRepository.save(user);
+        }
         String challengeId = challengeService.create(user.getEmail(), secret, true);
         return new TwoFactorChallengeResponse(
                 challengeId, true, user.getEmail(),

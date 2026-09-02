@@ -20,8 +20,8 @@ public class TotpService {
     private static final int SECRET_BYTES = 20;
     private static final int DIGITS = 6;
     private static final int PERIOD_SECONDS = 30;
-    /** Tolérance d'un pas avant/après pour absorber le décalage d'horloge du téléphone. */
-    private static final int WINDOW = 1;
+    /** ±2 pas (90 s) : absorbe le décalage d'horloge téléphone / serveur cloud. */
+    private static final int WINDOW = 2;
     private static final String ISSUER = "WatchDesk";
 
     private final SecureRandom random = new SecureRandom();
@@ -32,11 +32,11 @@ public class TotpService {
         return base32Encode(buffer);
     }
 
-    /** URI otpauth encodée dans le QR code affiché par la console. */
+    /** URI otpauth : issuer et compte encodés séparément, deux-points littéral (spec Google). */
     public String buildOtpAuthUri(String email, String secret) {
-        String label = URLEncoder.encode(ISSUER + ":" + email, StandardCharsets.UTF_8).replace("+", "%20");
         String issuer = URLEncoder.encode(ISSUER, StandardCharsets.UTF_8);
-        return "otpauth://totp/" + label
+        String account = URLEncoder.encode(email == null ? "" : email, StandardCharsets.UTF_8).replace("+", "%20");
+        return "otpauth://totp/" + issuer + ":" + account
                 + "?secret=" + secret
                 + "&issuer=" + issuer
                 + "&algorithm=SHA1"

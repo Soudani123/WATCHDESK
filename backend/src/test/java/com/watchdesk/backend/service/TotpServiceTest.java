@@ -39,10 +39,10 @@ class TotpServiceTest {
     }
 
     @Test
-    void toleratesOneStepOfClockDrift() {
+    void toleratesTwoStepsOfClockDrift() {
         long step = System.currentTimeMillis() / 1000L / 30L;
-        assertTrue(totpService.verifyCode(RFC_SECRET, referenceCode(RFC_SECRET, step - 1)));
-        assertTrue(totpService.verifyCode(RFC_SECRET, referenceCode(RFC_SECRET, step + 1)));
+        assertTrue(totpService.verifyCode(RFC_SECRET, referenceCode(RFC_SECRET, step - 2)));
+        assertTrue(totpService.verifyCode(RFC_SECRET, referenceCode(RFC_SECRET, step + 2)));
     }
 
     @Test

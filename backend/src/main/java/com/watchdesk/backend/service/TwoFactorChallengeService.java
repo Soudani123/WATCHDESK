@@ -14,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class TwoFactorChallengeService {
 
-    private static final long TTL_SECONDS = 300;
+    private static final long TTL_SECONDS = 600;
 
     public static class Challenge {
         private final String email;
