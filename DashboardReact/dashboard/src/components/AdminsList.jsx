@@ -95,6 +95,36 @@ export default function AdminsList({ theme, currentEmail }) {
     }
   };
 
+  const resetTwoFactor = async (user) => {
+    if (!window.confirm(`Réinitialiser la 2FA de ${user.fullName || user.email} ? Un QR code sera affiché à la prochaine connexion.`)) return;
+    const res = await api(`/api/users/${user.id}/reset-2fa`, { method: "POST" });
+    if (res.ok) load();
+    else {
+      const data = await res.json().catch(() => ({}));
+      setError(data.message || "Réinitialisation 2FA refusée.");
+    }
+  };
+
+  const changePassword = async (user) => {
+    const pwd = window.prompt(`Nouveau mot de passe pour ${user.fullName || user.email} (6 caractères minimum) :`);
+    if (pwd === null) return;
+    if (pwd.length < 6) {
+      setError("Mot de passe : 6 caractères minimum.");
+      return;
+    }
+    const res = await api(`/api/users/${user.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ password: pwd })
+    });
+    if (res.ok) {
+      setError("");
+      alert("Mot de passe mis à jour.");
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setError(data.message || "Changement de mot de passe refusé.");
+    }
+  };
+
   const removeUser = async (user) => {
     if (user.email && currentEmail && user.email.toLowerCase() === currentEmail.toLowerCase()) {
       setError("Vous ne pouvez pas supprimer votre propre compte.");
@@ -174,7 +204,7 @@ export default function AdminsList({ theme, currentEmail }) {
       )}
 
       <div style={{ background: theme.card, border: `1px solid ${theme.border}`, borderRadius: 12, padding: 20 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr 160px", gap: 8, marginBottom: 6, padding: "0 8px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 1fr 300px", gap: 8, marginBottom: 6, padding: "0 8px" }}>
           {["Nom", "Rôle", "Dernière connexion", "Actions"].map((h) => (
             <span key={h} style={{ fontSize: 11, fontWeight: 700, color: theme.subtext, textTransform: "uppercase" }}>{h}</span>
           ))}
@@ -190,7 +220,7 @@ export default function AdminsList({ theme, currentEmail }) {
               key={u.id || u.email}
               style={{
                 display: "grid",
-                gridTemplateColumns: "1.4fr 1fr 1fr 160px",
+                gridTemplateColumns: "1.4fr 1fr 1fr 300px",
                 gap: 8,
                 alignItems: "center",
                 padding: "12px 8px",
@@ -225,7 +255,15 @@ export default function AdminsList({ theme, currentEmail }) {
                 )}
               </div>
               <span style={{ fontSize: 12, color: theme.subtext }}>{formatLogin(u.lastLoginAt)}</span>
-              <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+              <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                <button type="button" onClick={() => changePassword(u)} style={{ fontSize: 11, fontWeight: 600, border: `1px solid ${theme.border}`, background: "transparent", color: theme.text, borderRadius: 6, padding: "4px 8px", cursor: "pointer" }}>
+                  Mot de passe
+                </button>
+                {u.twoFactorEnabled && (
+                  <button type="button" onClick={() => resetTwoFactor(u)} style={{ fontSize: 11, fontWeight: 600, border: `1px solid ${theme.border}`, background: "transparent", color: theme.text, borderRadius: 6, padding: "4px 8px", cursor: "pointer" }}>
+                    Reset 2FA
+                  </button>
+                )}
                 {!locked && (
                   <>
                     <button type="button" onClick={() => toggleEnabled(u)} style={{ fontSize: 11, fontWeight: 600, border: `1px solid ${theme.border}`, background: "transparent", color: theme.text, borderRadius: 6, padding: "4px 8px", cursor: "pointer" }}>
