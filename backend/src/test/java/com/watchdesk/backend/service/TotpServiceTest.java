@@ -33,6 +33,13 @@ class TotpServiceTest {
     }
 
     @Test
+    void localDatasourceGetsDistinctAuthenticatorIssuer() {
+        assertEquals("WatchDesk-Local", TotpService.resolveIssuer("", "jdbc:postgresql://localhost:5432/monitoring"));
+        assertEquals("WatchDesk", TotpService.resolveIssuer("", "jdbc:postgresql://db.supabase.co:5432/postgres"));
+        assertEquals("WatchDesk-Local", TotpService.resolveIssuer("WatchDesk-Local", "jdbc:postgresql://db.supabase.co:5432/postgres"));
+    }
+
+    @Test
     void acceptsCodeOfCurrentTimeStep() {
         String code = referenceCode(RFC_SECRET, System.currentTimeMillis() / 1000L / 30L);
         assertTrue(totpService.verifyCode(RFC_SECRET, code));

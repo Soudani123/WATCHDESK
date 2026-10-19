@@ -108,8 +108,8 @@ export default function Login({ onLoginSuccess }) {
           <h1>{setup ? "Activer la double authentification" : "Vérification en deux étapes"}</h1>
           <p>
             {setup
-              ? "Scannez ce QR code avec Google Authenticator ou Microsoft Authenticator, puis saisissez le code affiché."
-              : `Saisissez le code à 6 chiffres de votre application d'authentification pour ${challenge.email}.`}
+              ? `Scannez ce QR code (${challenge.issuer || "WatchDesk"}) avec Authenticator, puis saisissez le code affiché. Local et production sont deux comptes séparés.`
+              : `Saisissez le code du compte Authenticator « ${challenge.issuer || "WatchDesk"} » pour ${challenge.email}.`}
           </p>
 
           {error && <div className="wd-alert is-critical">{error}</div>}

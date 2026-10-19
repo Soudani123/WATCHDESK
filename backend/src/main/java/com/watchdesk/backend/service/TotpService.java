@@ -1,5 +1,7 @@
 package com.watchdesk.backend.service;
 
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.Mac;
@@ -22,9 +24,31 @@ public class TotpService {
     private static final int PERIOD_SECONDS = 30;
     /** ±2 pas (90 s) : absorbe le décalage d'horloge téléphone / serveur cloud. */
     private static final int WINDOW = 2;
-    private static final String ISSUER = "WatchDesk";
-
+    private final String issuer;
     private final SecureRandom random = new SecureRandom();
+
+    /** Pour les tests unitaires (issuer prod par défaut). */
+    public TotpService() {
+        this("WatchDesk", "");
+    }
+
+    @Autowired
+    public TotpService(
+            @Value("${watchdesk.auth.totp-issuer:}") String issuer,
+            @Value("${spring.datasource.url:}") String datasourceUrl) {
+        this.issuer = resolveIssuer(issuer, datasourceUrl);
+    }
+
+    public String getIssuer() {
+        return issuer;
+    }
+
+    static String resolveIssuer(String configured, String datasourceUrl) {
+        if (configured != null && !configured.isBlank()) return configured.trim();
+        String url = datasourceUrl == null ? "" : datasourceUrl.toLowerCase();
+        if (url.contains("localhost") || url.contains("127.0.0.1")) return "WatchDesk-Local";
+        return "WatchDesk";
+    }
 
     public String generateSecret() {
         byte[] buffer = new byte[SECRET_BYTES];
@@ -34,7 +58,7 @@ public class TotpService {
 
     /** URI otpauth : issuer et compte encodés séparément, deux-points littéral (spec Google). */
     public String buildOtpAuthUri(String email, String secret) {
-        String issuer = URLEncoder.encode(ISSUER, StandardCharsets.UTF_8);
+        String issuer = URLEncoder.encode(this.issuer, StandardCharsets.UTF_8);
         String account = URLEncoder.encode(email == null ? "" : email, StandardCharsets.UTF_8).replace("+", "%20");
         return "otpauth://totp/" + issuer + ":" + account
                 + "?secret=" + secret

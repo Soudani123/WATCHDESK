@@ -33,6 +33,8 @@ const ComputersPage = ({ focusPcName, readOnly = false }) => {
     const [selectedIps, setSelectedIps] = useState([]);
     const [selectedPc, setSelectedPc] = useState(null);
     const [showActionsDropdown, setShowActionsDropdown] = useState(false);
+    const [pendingAction, setPendingAction] = useState(null);
+    const [actionBusy, setActionBusy] = useState(false);
 
     const fetchData = useCallback(async (signal) => {
         try {
@@ -79,22 +81,35 @@ const ComputersPage = ({ focusPcName, readOnly = false }) => {
         setSelectedIps(selectedIps.includes(ip) ? selectedIps.filter(item => item !== ip) : [...selectedIps, ip]);
     };
 
-    const executeBulkAction = async (action, actionLabel) => {
+    const askBulkAction = (action, actionLabel) => {
         if (selectedIps.length === 0) return;
         setShowActionsDropdown(false);
+        setPendingAction({ action, actionLabel });
+    };
+
+    const executeBulkAction = async () => {
+        if (!pendingAction || selectedIps.length === 0) return;
+        setActionBusy(true);
         try {
             await Promise.all(selectedIps.map(ip =>
                 api(`/api/agent/trigger-action/${ip}`, {
                     method: 'POST',
-                    body: JSON.stringify({ action, message: `Ordre ${actionLabel}` })
+                    body: JSON.stringify({ action: pendingAction.action, message: `Ordre ${pendingAction.actionLabel}` })
                 })
             ));
-            alert(`Ordre '${actionLabel}' transmis à ${selectedIps.length} machine(s).`);
+            alert(`Ordre « ${pendingAction.actionLabel} » transmis à ${selectedIps.length} machine(s).`);
             setSelectedIps([]);
+            setPendingAction(null);
         } catch (err) {
             alert("Erreur de communication avec les agents.");
+        } finally {
+            setActionBusy(false);
         }
     };
+
+    const selectedNames = computers
+        .filter((pc) => selectedIps.includes(pc.ip))
+        .map((pc) => pc.name || pc.ip);
 
     const getLogContent = (pc) => {
         const parts = [
@@ -149,7 +164,7 @@ const ComputersPage = ({ focusPcName, readOnly = false }) => {
                                     <tr
                                         key={pc.id || pc.ip}
                                         className={isActive ? "is-active" : ""}
-                                        onClick={() => { setSelectedPc(pc); setActiveLogTab("system"); }}
+                                        onClick={() => setSelectedPc(pc)}
                                         style={{ cursor: "pointer" }}
                                     >
                                         <td style={{ textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
@@ -256,15 +271,48 @@ const ComputersPage = ({ focusPcName, readOnly = false }) => {
                     </button>
                     {showActionsDropdown && (
                         <div className="wd-menu">
-                            <button type="button" onClick={() => executeBulkAction("UPDATE_WITH_REBOOT", "Mise à jour avec redémarrage")}>Mise à jour avec redémarrage</button>
-                            <button type="button" onClick={() => executeBulkAction("UPDATE_WITHOUT_REBOOT", "Mise à jour sans redémarrage")}>Mise à jour sans redémarrage</button>
-                            <button type="button" className="is-warning" onClick={() => executeBulkAction("RESTART", "Redémarrage PC")}>Redémarrer</button>
-                            <button type="button" className="is-critical" onClick={() => executeBulkAction("SHUTDOWN", "Arrêt du PC")}>Éteindre</button>
+                            <button type="button" onClick={() => askBulkAction("UPDATE_WITH_REBOOT", "Mise à jour avec redémarrage")}>Mise à jour avec redémarrage</button>
+                            <button type="button" onClick={() => askBulkAction("UPDATE_WITHOUT_REBOOT", "Mise à jour sans redémarrage")}>Mise à jour sans redémarrage</button>
+                            <button type="button" className="is-warning" onClick={() => askBulkAction("RESTART", "Redémarrage PC")}>Redémarrer</button>
+                            <button type="button" className="is-critical" onClick={() => askBulkAction("SHUTDOWN", "Arrêt du PC")}>Éteindre</button>
                         </div>
                     )}
                 </div>
                 )}
             </div>
+
+            {pendingAction && (
+                <div className="wd-modal-backdrop" onClick={() => !actionBusy && setPendingAction(null)}>
+                    <div className="wd-modal" onClick={(e) => e.stopPropagation()}>
+                        <h2>Confirmer : {pendingAction.actionLabel}</h2>
+                        <p>
+                            Cette action sera envoyée à distance. L’agent l’exécutera à son prochain cycle.
+                            Confirmez uniquement si vous voulez vraiment continuer.
+                        </p>
+                        <div className="wd-modal-pcs">
+                            {selectedNames.length} machine(s) : {selectedNames.join(", ") || selectedIps.join(", ")}
+                        </div>
+                        <div className="wd-modal-actions">
+                            <button
+                                type="button"
+                                className="wd-btn"
+                                disabled={actionBusy}
+                                onClick={() => setPendingAction(null)}
+                            >
+                                Annuler
+                            </button>
+                            <button
+                                type="button"
+                                className="wd-btn wd-btn-primary"
+                                disabled={actionBusy}
+                                onClick={executeBulkAction}
+                            >
+                                {actionBusy ? "Envoi…" : "Valider et exécuter"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

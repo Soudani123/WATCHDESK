@@ -33,6 +33,13 @@ public class AuthController {
     @Value("${google.client.id}")
     private String googleClientId;
 
+    /** false = mot de passe / Google suffisent (dev local, ou Render si WATCHDESK_TOTP_REQUIRED=false). */
+    @Value("${watchdesk.auth.totp-required:true}")
+    private boolean totpRequired;
+
+    @Value("${spring.datasource.url:}")
+    private String datasourceUrl;
+
     public AuthController(UserRepository userRepository, PasswordEncoder passwordEncoder, JwtService jwtService,
                           TotpService totpService, TwoFactorChallengeService challengeService) {
         this.userRepository = userRepository;
@@ -80,7 +87,9 @@ public class AuthController {
 
         assignRoleIfNeeded(user);
 
-        // Le mot de passe seul ne suffit pas : on passe la main au second facteur
+        if (!shouldChallengeTwoFactor()) {
+            return ResponseEntity.ok(completeLogin(user));
+        }
         return ResponseEntity.ok(startTwoFactorChallenge(user));
     }
 
@@ -127,6 +136,9 @@ public class AuthController {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Compte désactivé. Contactez le Super Admin.");
             }
 
+            if (!shouldChallengeTwoFactor()) {
+                return ResponseEntity.ok(completeLogin(user));
+            }
             return ResponseEntity.ok(startTwoFactorChallenge(user));
 
         } catch (Exception e) {
@@ -165,11 +177,24 @@ public class AuthController {
         }
 
         challengeService.consume(request.getChallengeId());
+        return ResponseEntity.ok(completeLogin(user));
+    }
+
+    /**
+     * En local (Postgres localhost) la 2FA est ignorée : un seul Authenticator pour Render/Vercel.
+     * Sur Render, WATCHDESK_TOTP_REQUIRED=false désactive aussi la 2FA.
+     */
+    private boolean shouldChallengeTwoFactor() {
+        if (!totpRequired) return false;
+        String url = datasourceUrl == null ? "" : datasourceUrl.toLowerCase();
+        return !url.contains("localhost") && !url.contains("127.0.0.1");
+    }
+
+    private AuthResponse completeLogin(User user) {
         user.setLastLoginAt(LocalDateTime.now());
         userRepository.save(user);
-
         String token = jwtService.generateToken(user.getEmail());
-        return ResponseEntity.ok(new AuthResponse(token, user.getEmail(), user.getFullName(), user.getRole()));
+        return new AuthResponse(token, user.getEmail(), user.getFullName(), user.getRole());
     }
 
     /**
@@ -180,7 +205,7 @@ public class AuthController {
     private TwoFactorChallengeResponse startTwoFactorChallenge(User user) {
         if (user.isTwoFactorEnabled()) {
             String challengeId = challengeService.create(user.getEmail(), user.getTwoFactorSecret(), false);
-            return new TwoFactorChallengeResponse(challengeId, false, user.getEmail(), null, null);
+            return new TwoFactorChallengeResponse(challengeId, false, user.getEmail(), null, null, null);
         }
 
         String secret = user.getTwoFactorSecret();
@@ -194,7 +219,7 @@ public class AuthController {
         return new TwoFactorChallengeResponse(
                 challengeId, true, user.getEmail(),
                 totpService.buildOtpAuthUri(user.getEmail(), secret),
-                secret);
+                secret, totpService.getIssuer());
     }
 
     // Règle métier : Affectation dynamique et persistance du rôle

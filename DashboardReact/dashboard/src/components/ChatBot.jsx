@@ -38,6 +38,11 @@ export default function ChatBot() {
         body: JSON.stringify({ message: currentInput })
       });
 
+      if (!res.ok) {
+        const detail = await res.text().catch(() => "");
+        throw new Error(`Réponse du serveur : HTTP ${res.status}${detail ? ` — ${detail.slice(0, 200)}` : ""}`);
+      }
+
       const data = await res.json();
       setMessages((prev) => [...prev, {
         text: data.reply || "Pas de réponse.",
@@ -47,7 +52,10 @@ export default function ChatBot() {
 
       window.dispatchEvent(new Event("incidentCreated"));
     } catch (err) {
-      setMessages((prev) => [...prev, { text: "Impossible de contacter l'IA du serveur.", isBot: true }]);
+      const reason = err instanceof TypeError
+        ? "Impossible de contacter le backend WatchDesk (API éteinte ou URL VITE_API_URL incorrecte)."
+        : err?.message || String(err);
+      setMessages((prev) => [...prev, { text: `Erreur IA : ${reason}`, isBot: true }]);
     } finally {
       loadingRef.current = false;
       setLoading(false);

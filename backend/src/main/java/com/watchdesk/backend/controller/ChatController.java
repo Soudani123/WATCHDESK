@@ -6,12 +6,10 @@ import com.watchdesk.backend.repository.ComputerRepository;
 import com.watchdesk.backend.repository.IncidentRepository;
 import com.watchdesk.backend.service.AuditService;
 import com.watchdesk.backend.service.ConfigurationService;
+import com.watchdesk.backend.service.GeminiService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
@@ -40,10 +38,7 @@ public class ChatController {
     private AuditService auditService;
 
     @Autowired
-    private RestTemplate restTemplate;
-
-    @Value("${gemini.api.key}")
-    private String apiKey;
+    private GeminiService geminiService;
 
     @PostMapping("/ask")
     public Map<String, Object> askGemini(@RequestBody Map<String, String> payload, HttpServletRequest request) {
@@ -130,41 +125,14 @@ public class ChatController {
             ));
             context.append("Contexte incidents récents : ");
             recentIncidents.stream()
+                    .filter(inc -> inc.getCreatedAt() != null)
                     .sorted((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()))
                     .limit(3)
                     .forEach(inc -> context.append(String.format("[%s sur %s (#%d)] ",
                             inc.getDescription(), inc.getPcName(), inc.getId())));
 
             String fullPrompt = context.toString() + ticketCreationContext + ". Question : " + userMessage;
-
-            String geminiUrl = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=" + apiKey;
-
-            Map<String, Object> textPart = Map.of("text", fullPrompt);
-            Map<String, Object> parts = Map.of("parts", List.of(textPart));
-            Map<String, Object> contents = Map.of("contents", List.of(parts));
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(contents, headers);
-
-            ResponseEntity<Map> response = restTemplate.postForEntity(geminiUrl, entity, Map.class);
-
-            String aiReply = "Aucune réponse générée par l'assistant.";
-            if (response.getBody() != null && response.getBody().containsKey("candidates")) {
-                List candidates = (List) response.getBody().get("candidates");
-                if (candidates != null && !candidates.isEmpty()) {
-                    Map firstCandidate = (Map) candidates.get(0);
-                    Map content = (Map) firstCandidate.get("content");
-                    if (content != null) {
-                        List partsList = (List) content.get("parts");
-                        if (partsList != null && !partsList.isEmpty()) {
-                            Map firstPart = (Map) partsList.get(0);
-                            Object text = firstPart.get("text");
-                            if (text != null) aiReply = text.toString();
-                        }
-                    }
-                }
-            }
+            String aiReply = geminiService.generate(fullPrompt);
 
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("reply", aiReply);
@@ -175,7 +143,8 @@ public class ChatController {
 
         } catch (Exception e) {
             e.printStackTrace();
-            return Map.of("reply", "Erreur lors de la génération de la réponse : " + e.getMessage());
+            String detail = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            return Map.of("reply", "Erreur lors de la génération de la réponse : " + detail);
         }
     }
 

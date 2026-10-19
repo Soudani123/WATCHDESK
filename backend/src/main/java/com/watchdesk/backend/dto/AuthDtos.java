@@ -57,14 +57,16 @@ public class AuthDtos {
         private final String email;
         private final String otpauthUri;
         private final String secret;
+        private final String issuer;
 
         public TwoFactorChallengeResponse(String challengeId, boolean setupRequired, String email,
-                                          String otpauthUri, String secret) {
+                                          String otpauthUri, String secret, String issuer) {
             this.challengeId = challengeId;
             this.setupRequired = setupRequired;
             this.email = email;
             this.otpauthUri = otpauthUri;
             this.secret = secret;
+            this.issuer = issuer;
         }
 
         public boolean isTwoFactorRequired() { return twoFactorRequired; }
@@ -73,6 +75,7 @@ public class AuthDtos {
         public String getEmail() { return email; }
         public String getOtpauthUri() { return otpauthUri; }
         public String getSecret() { return secret; }
+        public String getIssuer() { return issuer; }
     }
 
     // 5. DTO de Réponse (bien imbriqué à l'intérieur de AuthDtos avec `static`)

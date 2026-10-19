@@ -94,6 +94,18 @@ public class UserController {
         }).orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    @PostMapping("/{id}/reset-2fa")
+    public ResponseEntity<?> resetTwoFactor(@PathVariable Long id, HttpServletRequest request) {
+        return userRepository.findById(id).map(user -> {
+            user.setTwoFactorEnabled(false);
+            user.setTwoFactorSecret(null);
+            User saved = userRepository.save(user);
+            auditService.log(request, "USER_RESET_2FA", "USER", String.valueOf(saved.getId()), saved.getEmail(),
+                    "2FA réinitialisée — QR au prochain login");
+            return ResponseEntity.ok(toPublic(saved));
+        }).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<?> delete(@PathVariable Long id, HttpServletRequest request) {
         return userRepository.findById(id).map(user -> {
@@ -117,6 +129,7 @@ public class UserController {
         map.put("enabled", user.isEnabled());
         map.put("lastLoginAt", user.getLastLoginAt());
         map.put("superAdmin", user.isSuperAdminAccount());
+        map.put("twoFactorEnabled", user.isTwoFactorEnabled());
         return map;
     }
 

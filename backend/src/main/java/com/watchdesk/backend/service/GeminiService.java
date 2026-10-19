@@ -2,10 +2,13 @@ package com.watchdesk.backend.service;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,18 +25,25 @@ public class GeminiService {
     private static final String GENERATE_URL =
             "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent";
 
+    private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
+    // Un rendu « thinking » peut dépasser la minute : sans bornes, la requête
+    // navigateur côté expire avant et affiche une erreur incompréhensible.
+    private static final Duration READ_TIMEOUT = Duration.ofSeconds(75);
+
     private final RestTemplate restTemplate;
     private final String apiKey;
     private final List<String> models;
 
     public GeminiService(
-            RestTemplate restTemplate,
             @Value("${gemini.api.key:}") String apiKey,
             @Value("${gemini.api.model:gemini-3.8-flash}") String primaryModel,
             @Value("${gemini.api.fallback-models:gemini-3.5-flash-lite,gemini-3.1-flash-lite,gemini-3.5-flash,gemini-2.5-flash}")
             String fallbackModels
     ) {
-        this.restTemplate = restTemplate;
+        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(CONNECT_TIMEOUT);
+        factory.setReadTimeout(READ_TIMEOUT);
+        this.restTemplate = new RestTemplate(factory);
         this.apiKey = apiKey == null ? "" : apiKey.trim();
         this.models = new ArrayList<>();
         addModel(this.models, primaryModel);
@@ -90,6 +100,9 @@ public String generate(String prompt) {
             // Pour les autres erreurs, arrêter et signaler le problème.
             return "Erreur Gemini (" + model + ") : " + lastError;
 
+        } catch (ResourceAccessException ex) {
+            return "Impossible d'atteindre l'API Gemini depuis le serveur ("
+                    + ex.getMessage() + "). Vérifiez le réseau/proxy du backend.";
         } catch (Exception ex) {
             lastError = ex.getMessage() == null
                     ? ex.getClass().getSimpleName()
@@ -100,7 +113,9 @@ public String generate(String prompt) {
     }
 
     return "Impossible d'obtenir une réponse de Gemini après "
-            + models.size() + " modèle(s). Dernière erreur : " + lastError;
+            + models.size() + " modèle(s). "
+            + "Causes fréquentes : quota journalier dépassé (429) ou clé sans accès aux "
+            + "modèles demandés. Dernière erreur : " + lastError;
 }
 
 

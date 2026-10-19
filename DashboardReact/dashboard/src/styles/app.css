@@ -784,8 +784,9 @@ code,
 
 .wd-chat {
   position: fixed;
-  bottom: 24px;
-  right: 24px;
+  /* .wd-footer-bar (barre ACTIONS) fait 48px : on dégage le bouton IA au-dessus. */
+  bottom: 68px;
+  right: 28px;
   z-index: 1000;
 }
 
@@ -1019,4 +1020,51 @@ code,
 
 .wd-menu button.is-critical {
   color: var(--status-critical);
+}
+
+.wd-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+.wd-modal {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  width: min(440px, calc(100vw - 32px));
+  padding: 22px 24px;
+  color: var(--text-primary);
+}
+
+.wd-modal h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.wd-modal p {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.wd-modal-pcs {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  background: var(--bg-app);
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.wd-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
