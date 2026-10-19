@@ -134,7 +134,8 @@ export default function ConfigurationPage({ theme }) {
     const cc = parseInt(cpuCritical, 10) || 90;
     const rw = parseInt(ramWarning, 10) || 80;
     const rc = parseInt(ramCritical, 10) || 95;
-    const offMin = parseInt(offlineMinutes, 10) || 3;
+    const rawOffMin = parseInt(offlineMinutes, 10);
+    const offMin = Number.isNaN(rawOffMin) || rawOffMin < 0 ? 3 : rawOffMin;
     api("/api/computers")
       .then(r => r.ok ? r.json() : [])
       .then(list => {
@@ -144,7 +145,7 @@ export default function ConfigurationPage({ theme }) {
         let warn = 0, crit = 0, off = 0;
         list.forEach(pc => {
           const mins = pc.lastSeen ? (now - new Date(pc.lastSeen).getTime()) / 60000 : 999;
-          if (mins >= offMin) { off += 1; return; }
+          if (offMin > 0 && mins >= offMin) { off += 1; return; }
           const cpu = parse(pc.cpuUsage);
           const ram = pc.ramTotalMB ? (Number(pc.ramUsedMB) / Number(pc.ramTotalMB)) * 100 : 0;
           if (cpu >= cc || ram >= rc) crit += 1;
@@ -159,13 +160,14 @@ export default function ConfigurationPage({ theme }) {
     e.preventDefault();
     setSaving(true);
 
+    const rawOffline = parseInt(offlineMinutes, 10);
     const configPayload = {
       cpuCritical: parseInt(cpuCritical) || 0,
       ramCritical: parseInt(ramCritical) || 0,
       cpuWarning: parseInt(cpuWarning) || 75,
       ramWarning: parseInt(ramWarning) || 80,
       diskCriticalGb: parseInt(diskCriticalGb) || 10,
-      offlineMinutes: parseInt(offlineMinutes) || 3,
+      offlineMinutes: Number.isNaN(rawOffline) || rawOffline < 0 ? 3 : rawOffline,
       maintenanceMode,
       maintenanceDuration: String(maintenanceDuration),
       adminEmail,
@@ -301,8 +303,8 @@ export default function ConfigurationPage({ theme }) {
             <Field label="RAM critique (%)">
               <input type="number" min="1" max="100" value={ramCritical} onChange={(e) => setRamCritical(e.target.value)} style={inputStyle} />
             </Field>
-            <Field label="Hors ligne après (min)">
-              <input type="number" min="1" max="120" value={offlineMinutes} onChange={(e) => setOfflineMinutes(e.target.value)} style={inputStyle} />
+            <Field label="Hors ligne après (min) · 0 = toujours en ligne">
+              <input type="number" min="0" max="10080" value={offlineMinutes} onChange={(e) => setOfflineMinutes(e.target.value)} style={inputStyle} />
             </Field>
           </div>
           <div style={{

@@ -1,6 +1,7 @@
 package com.watchdesk.backend.service;
 
 import com.watchdesk.backend.model.Computer;
+import com.watchdesk.backend.model.Configuration;
 import com.watchdesk.backend.model.Incident;
 import com.watchdesk.backend.repository.IncidentRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,13 +24,22 @@ public class DashboardService {
     @Autowired
     private IncidentRepository incidentRepo;
 
+    @Autowired
+    private ConfigurationService configurationService;
+
     public Map<String, Object> getDashboardData() {
         Map<String, Object> result = new HashMap<>();
 
-        long total = computerRepo.count();
-        long online = computerRepo.countByStatus("online");
-        long offline = computerRepo.countByStatus("offline");
-        long warning = computerRepo.countByStatus("warning");
+        // Une seule règle de connexion pour tout WatchDesk : Configuration#isConsideredOffline
+        List<Computer> fleet = computerRepo.findAll();
+        Configuration configuration = configurationService.getConfiguration();
+        long total = fleet.size();
+        long offline = fleet.stream().filter(c -> configuration.isConsideredOffline(c.getLastSeen())).count();
+        long online = total - offline;
+        long warning = fleet.stream()
+                .filter(c -> !configuration.isConsideredOffline(c.getLastSeen()))
+                .filter(c -> "warning".equalsIgnoreCase(String.valueOf(c.getStatus())))
+                .count();
         long activeIncidents = incidentRepo.countOpenIncidents();
         Map<String, Object> kpi = new HashMap<>();
         kpi.put("total", String.valueOf(total));

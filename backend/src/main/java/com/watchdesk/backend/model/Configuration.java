@@ -2,6 +2,9 @@ package com.watchdesk.backend.model;
 
 import jakarta.persistence.*;
 
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+
 @Entity
 @Table(name = "configurations")
 public class Configuration {
@@ -56,7 +59,18 @@ public class Configuration {
     public int getCpuWarning() { return cpuWarning == null || cpuWarning <= 0 ? 75 : cpuWarning; }
     public int getRamWarning() { return ramWarning == null || ramWarning <= 0 ? 80 : ramWarning; }
     public int getDiskCriticalGb() { return diskCriticalGb == null || diskCriticalGb <= 0 ? 10 : diskCriticalGb; }
-    public int getOfflineMinutes() { return offlineMinutes == null || offlineMinutes <= 0 ? 3 : offlineMinutes; }
+    public int getOfflineMinutes() { return offlineMinutes == null || offlineMinutes < 0 ? 3 : offlineMinutes; }
+
+    /**
+     * Règle unique « poste hors ligne » du backend.
+     * offlineMinutes = 0 désactive la détection : les postes restent en ligne.
+     */
+    public boolean isConsideredOffline(LocalDateTime lastSeen) {
+        int threshold = getOfflineMinutes();
+        if (threshold == 0) return false;
+        if (lastSeen == null) return true;
+        return ChronoUnit.MINUTES.between(lastSeen, LocalDateTime.now()) >= threshold;
+    }
 
     // Setters
     public void setId(Long id) { this.id = id; }

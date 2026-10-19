@@ -552,7 +552,7 @@ export default function ParcOverview({ theme, onViewIncidents, onViewComputers, 
     computers.forEach((pc) => {
       const mins = minutesAgo(pc.lastSeen);
       if (mins == null) buckets.never += 1;
-      else if (mins < ONLINE_MINUTES) buckets.online += 1;
+      else if (fleetOf(pc) !== "offline") buckets.online += 1;
       else if (mins < 24 * 60) buckets.day += 1;
       else if (mins < 7 * 24 * 60) buckets.week += 1;
       else buckets.old += 1;

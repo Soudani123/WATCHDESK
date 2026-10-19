@@ -1,6 +1,7 @@
 package com.watchdesk.backend.controller;
 
 import com.watchdesk.backend.model.Computer;
+import com.watchdesk.backend.model.Configuration;
 import com.watchdesk.backend.model.Incident;
 import com.watchdesk.backend.repository.ComputerRepository;
 import com.watchdesk.backend.repository.IncidentRepository;
@@ -99,8 +100,8 @@ public class ChatController {
             }
 
             List<Computer> computers = computerRepository.findAll();
-            int offlineMin = configurationService.getConfiguration().getOfflineMinutes();
-            long online = computers.stream().filter(c -> minutesSince(c.getLastSeen()) < offlineMin).count();
+            Configuration configuration = configurationService.getConfiguration();
+            long online = computers.stream().filter(c -> !configuration.isConsideredOffline(c.getLastSeen())).count();
             long offline = computers.size() - online;
             List<String> topCpu = computers.stream()
                     .sorted((a, b) -> Double.compare(parseCpu(b), parseCpu(a)))
@@ -151,7 +152,7 @@ public class ChatController {
     private record ToolResult(String promptHint, Map<String, Object> data) {}
 
     private ToolResult runFleetTools(String userMessage, String lower) {
-        int offlineMin = configurationService.getConfiguration().getOfflineMinutes();
+        Configuration configuration = configurationService.getConfiguration();
         List<Computer> all = computerRepository.findAll();
 
         // Résumé incident #N
@@ -189,7 +190,7 @@ public class ChatController {
         // PC hors ligne
         if (lower.contains("hors ligne") || lower.contains("offline") || lower.contains("déconnect")) {
             List<Map<String, String>> rows = all.stream()
-                    .filter(c -> minutesSince(c.getLastSeen()) >= offlineMin)
+                    .filter(c -> configuration.isConsideredOffline(c.getLastSeen()))
                     .map(c -> Map.of(
                             "name", nullToDash(c.getName()),
                             "ip", nullToDash(c.getIp()),
@@ -198,7 +199,8 @@ public class ChatController {
                     .collect(Collectors.toList());
             Map<String, Object> data = Map.of("type", "computers", "title", "PC hors ligne", "rows", rows);
             return new ToolResult(
-                    "[DONNÉES PARC : " + rows.size() + " PC hors ligne (seuil " + offlineMin + " min). Liste dans data.rows.]",
+                    "[DONNÉES PARC : " + rows.size() + " PC hors ligne (seuil " + configuration.getOfflineMinutes()
+                            + " min, 0 = détection désactivée). Liste dans data.rows.]",
                     data
             );
         }
