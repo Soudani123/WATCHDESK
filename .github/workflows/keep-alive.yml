@@ -1,0 +1,17 @@
+name: keep-alive
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Reveiller l'API WatchDesk
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 25 https://watchdesk-api.onrender.com/api/dashboard || echo 000)
+          echo "reponse HTTP: $code"
+          exit 0
