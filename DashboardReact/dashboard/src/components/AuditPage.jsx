@@ -43,12 +43,25 @@ function formatWhen(value) {
 
 function buildParams({ action, actor, q, from, to, page = "0", size = "100" }) {
   const params = new URLSearchParams({ page, size });
-  if (action) params.set("action", action);
-  if (actor) params.set("actor", actor);
-  if (q) params.set("q", q);
-  if (from) params.set("from", from);
-  if (to) params.set("to", to);
+  if (action) params.set("action", action.trim());
+  if (actor) params.set("actor", actor.trim());
+  if (q) params.set("q", q.trim());
+  if (from) {
+    params.set("from", from);
+    params.set("fromDate", from);
+  }
+  if (to) {
+    params.set("to", to);
+    params.set("toDate", to);
+  }
   return params;
+}
+
+function extractRows(data) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.content)) return data.content;
+  if (Array.isArray(data?.items)) return data.items;
+  return [];
 }
 
 function getUserHeaderValue() {
@@ -70,35 +83,52 @@ function getUserHeaderValue() {
 export default function AuditPage({ theme }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [exporting, setExporting] = useState(false);
   const [action, setAction] = useState("");
   const [actor, setActor] = useState("");
   const [q, setQ] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [applied, setApplied] = useState({ action: "", actor: "", q: "", from: "", to: "" });
   const [total, setTotal] = useState(0);
 
   const load = useCallback(async (signal) => {
     try {
-      const params = buildParams({ action, actor, q, from, to, size: "150" });
+      const params = buildParams({ ...applied, size: "150" });
       const res = await api(`/api/audit?${params}`, { signal });
-      if (!res.ok) return;
+      if (!res.ok) {
+        setError(`Impossible de charger le journal (HTTP ${res.status}).`);
+        setRows([]);
+        setTotal(0);
+        return;
+      }
       const data = await res.json();
-      setRows(Array.isArray(data.content) ? data.content : []);
-      setTotal(data.totalElements || 0);
+      const list = extractRows(data);
+      setRows(list);
+      setTotal(typeof data?.totalElements === "number" ? data.totalElements : list.length);
+      setError(null);
     } catch (err) {
-      if (err?.name !== "AbortError") console.error(err);
+      if (err?.name !== "AbortError") {
+        console.error(err);
+        setError("Impossible de joindre l’API d’audit.");
+      }
     } finally {
       setLoading(false);
     }
-  }, [action, actor, q, from, to]);
+  }, [applied]);
 
-  usePolling(load, 15000);
+  usePolling(load, 15000, { deps: [applied] });
+
+  const applyFilters = () => {
+    setLoading(true);
+    setApplied({ action, actor, q, from, to });
+  };
 
   const exportCsv = async () => {
     setExporting(true);
     try {
-      const params = buildParams({ action, actor, q, from, to });
+      const params = buildParams({ ...applied });
       const headers = {};
       const token = getToken();
       if (token) headers.Authorization = `Bearer ${token}`;
@@ -130,6 +160,8 @@ export default function AuditPage({ theme }) {
     setQ("");
     setFrom("");
     setTo("");
+    setLoading(true);
+    setApplied({ action: "", actor: "", q: "", from: "", to: "" });
   };
 
   const border = theme?.border || "var(--border)";
@@ -215,6 +247,7 @@ export default function AuditPage({ theme }) {
             placeholder="Nom ou e-mail"
             value={actor}
             onChange={(e) => setActor(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") applyFilters(); }}
           />
         </label>
         <label>
@@ -233,12 +266,13 @@ export default function AuditPage({ theme }) {
             placeholder="Cible, détails…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") applyFilters(); }}
           />
         </label>
         <div style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
           <button
             type="button"
-            onClick={() => load()}
+            onClick={applyFilters}
             style={{
               padding: "9px 14px", borderRadius: 8, border: "none",
               background: "var(--accent)", color: "#fff", fontWeight: 600, fontSize: 13, cursor: "pointer",
@@ -258,6 +292,15 @@ export default function AuditPage({ theme }) {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div style={{
+          marginBottom: 12, padding: "12px 14px", borderRadius: 10,
+          background: "rgba(220, 38, 38, 0.08)", color: "#b91c1c", fontSize: 13, fontWeight: 600,
+        }}>
+          {error}
+        </div>
+      )}
 
       <div style={{ background: card, border: `1px solid ${border}`, borderRadius: 12, overflow: "hidden" }}>
         {loading && rows.length === 0 ? (

@@ -3,12 +3,19 @@ package com.watchdesk.backend.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.watchdesk.backend.model.AuditLog;
 import com.watchdesk.backend.repository.AuditLogRepository;
+import jakarta.persistence.criteria.Predicate;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @Service
@@ -71,6 +78,49 @@ public class AuditService {
 
     public AuditLog log(HttpServletRequest request, String action, String targetType, String targetId, String targetLabel, String details) {
         return log(resolveActor(request), action, targetType, targetId, targetLabel, details);
+    }
+
+    /**
+     * Optional filters are omitted from SQL entirely (no NULL timestamp binds,
+     * which PostgreSQL / Supabase reject with "could not determine data type").
+     */
+    public Page<AuditLog> search(String action, String actor, String q, LocalDateTime from, LocalDateTime to, Pageable pageable) {
+        Specification<AuditLog> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+
+            if (action != null && !action.isBlank()) {
+                predicates.add(cb.equal(cb.upper(root.get("action")), action.trim().toUpperCase(Locale.ROOT)));
+            }
+            if (actor != null && !actor.isBlank()) {
+                String like = contains(actor);
+                predicates.add(cb.or(
+                        cb.like(cb.lower(cb.coalesce(root.get("actorEmail"), "")), like),
+                        cb.like(cb.lower(cb.coalesce(root.get("actorName"), "")), like)
+                ));
+            }
+            if (q != null && !q.isBlank()) {
+                String like = contains(q);
+                predicates.add(cb.or(
+                        cb.like(cb.lower(cb.coalesce(root.get("details"), "")), like),
+                        cb.like(cb.lower(cb.coalesce(root.get("targetLabel"), "")), like),
+                        cb.like(cb.lower(cb.coalesce(root.get("targetId"), "")), like),
+                        cb.like(cb.lower(cb.coalesce(root.get("targetType"), "")), like),
+                        cb.like(cb.lower(cb.coalesce(root.get("action"), "")), like)
+                ));
+            }
+            if (from != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("createdAt"), from));
+            }
+            if (to != null) {
+                predicates.add(cb.lessThan(root.get("createdAt"), to));
+            }
+            return predicates.isEmpty() ? cb.conjunction() : cb.and(predicates.toArray(Predicate[]::new));
+        };
+        return repository.findAll(spec, pageable);
+    }
+
+    private static String contains(String raw) {
+        return "%" + raw.trim().toLowerCase(Locale.ROOT) + "%";
     }
 
     private static String str(Object o) {

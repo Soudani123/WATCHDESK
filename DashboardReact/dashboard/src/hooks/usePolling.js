@@ -7,10 +7,10 @@ import { useEffect, useRef } from "react";
  *
  * @param {(signal: AbortSignal) => void | Promise<void>} fn
  * @param {number} intervalMs
- * @param {{ enabled?: boolean }} [options]
+ * @param {{ enabled?: boolean, deps?: unknown[] }} [options]
  */
 export function usePolling(fn, intervalMs, options = {}) {
-  const { enabled = true } = options;
+  const { enabled = true, deps = [] } = options;
   const fnRef = useRef(fn);
   fnRef.current = fn;
 
@@ -75,5 +75,6 @@ export function usePolling(fn, intervalMs, options = {}) {
       abortInFlight();
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [intervalMs, enabled]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps is an explicit refresh key from the caller
+  }, [intervalMs, enabled, ...deps]);
 }
